@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React from 'react';
 
 export interface ThemeColors {
   isDark: boolean;
@@ -32,23 +32,23 @@ export interface ThemeColors {
 
 export const LIGHT_THEME: ThemeColors = {
   isDark: false,
-  bg: '#f8fafc',
+  bg: '#f1f5f9',
   card: '#ffffff',
   cardBorder: '#e2e8f0',
   textPrimary: '#0f172a',
   textSecondary: '#334155',
   textMuted: '#64748b',
-  inputBg: '#f1f5f9',
+  inputBg: '#f8fafc',
   headerBg: '#ffffff',
   tabBarBg: '#ffffff',
   tabBarBorder: '#e2e8f0',
 
-  primary: '#0f766e',
-  primaryDark: '#115e59',
-  primaryLight: '#0d9488',
+  primary: '#0284c7',
+  primaryDark: '#0369a1',
+  primaryLight: '#38bdf8',
   accent: '#ea580c',
   accentSoft: '#ffedd5',
-  cyan: '#0284c7',
+  cyan: '#06b6d4',
   cyanSoft: '#e0f2fe',
   tealSoft: '#ccfbf1',
 
@@ -64,24 +64,24 @@ export const LIGHT_THEME: ThemeColors = {
 
 export const DARK_THEME: ThemeColors = {
   isDark: true,
-  bg: '#0f172a',
-  card: '#1e293b',
-  cardBorder: 'rgba(255, 255, 255, 0.08)',
-  textPrimary: '#f8fafc',
+  bg: '#060a17',
+  card: '#0e1628',
+  cardBorder: 'rgba(255, 255, 255, 0.12)',
+  textPrimary: '#ffffff',
   textSecondary: '#cbd5e1',
   textMuted: '#94a3b8',
   inputBg: 'rgba(255, 255, 255, 0.05)',
-  headerBg: '#0f172a',
-  tabBarBg: '#0f172a',
-  tabBarBorder: 'rgba(255, 255, 255, 0.08)',
+  headerBg: '#060a17',
+  tabBarBg: '#060a17',
+  tabBarBorder: 'rgba(255, 255, 255, 0.1)',
 
-  primary: '#0f766e',
-  primaryDark: '#115e59',
-  primaryLight: '#0d9488',
+  primary: '#0284c7',
+  primaryDark: '#0369a1',
+  primaryLight: '#38bdf8',
   accent: '#f97316',
   accentSoft: 'rgba(249, 115, 22, 0.2)',
-  cyan: '#0284c7',
-  cyanSoft: 'rgba(2, 132, 199, 0.2)',
+  cyan: '#06b6d4',
+  cyanSoft: 'rgba(6, 182, 212, 0.2)',
   tealSoft: 'rgba(15, 118, 110, 0.2)',
 
   success: '#10b981',
@@ -100,15 +100,15 @@ export const SHADOWS = {
   sm: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
   },
   md: {
-    shadowColor: '#0f766e',
+    shadowColor: '#0284c7',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
   },
 };

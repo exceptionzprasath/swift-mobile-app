@@ -6,8 +6,10 @@ import {
   TouchableOpacity,
   Dimensions,
   Animated,
+  ImageBackground,
+  Image,
 } from 'react-native';
-import { ThemeColors, SHADOWS } from '../theme/colors';
+import { ThemeColors } from '../theme/colors';
 import { Icon } from './Icon';
 
 const { width } = Dimensions.get('window');
@@ -43,134 +45,157 @@ export function SplashView({ theme, onFinish }: SplashViewProps) {
   }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg }]}>
+    <ImageBackground
+      source={require('../assets/swift.png')}
+      style={styles.bgImage}
+      resizeMode="cover"
+    >
+      {/* Dark Ambient Overlay */}
+      <View style={styles.overlay} />
+
       <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
-        {/* SWIFT Logo Emblem */}
-        <View style={[styles.logoRing, { borderColor: theme.primaryLight, backgroundColor: theme.tealSoft }]}>
-          <View style={[styles.logoInner, { backgroundColor: theme.primary }]}>
-            <Text style={styles.logoTextBold}>SWIFT</Text>
-            <Text style={[styles.logoTextSub, { color: theme.accent }]}>HRMS</Text>
-          </View>
-        </View>
+        {/* Glassmorphism Frosted Container */}
+        <View style={styles.glassCard}>
 
-        <Text style={[styles.appTitle, { color: theme.textPrimary }]}>SWIFT HRMS</Text>
-        <Text style={[styles.appTagline, { color: theme.textMuted }]}>Enterprise Employee Portal</Text>
+          {/* SWIFT Logo */}
+          <View style={styles.brandHeader}>
+            <Image
+              source={require('../assets/logo-swift.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.appTagline}>Enterprise Employee Portal</Text>
+          </View>
 
-        <View style={styles.featurePills}>
-          <View style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <Icon name="clock" size={14} color={theme.primary} />
-            <Text style={[styles.pillText, { color: theme.textPrimary }]}>Attendance</Text>
+          {/* Feature Pills */}
+          <View style={styles.featurePills}>
+            <View style={styles.pill}>
+              <Icon name="clock" size={14} color="#38bdf8" />
+              <Text style={styles.pillText}>Attendance</Text>
+            </View>
+            <View style={styles.pill}>
+              <Icon name="payroll" size={14} color="#34d399" />
+              <Text style={styles.pillText}>Payroll</Text>
+            </View>
+            <View style={styles.pill}>
+              <Icon name="leaves" size={14} color="#fbbf24" />
+              <Text style={styles.pillText}>Leaves</Text>
+            </View>
           </View>
-          <View style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <Icon name="payroll" size={14} color={theme.cyan} />
-            <Text style={[styles.pillText, { color: theme.textPrimary }]}>Payroll</Text>
-          </View>
-          <View style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <Icon name="leaves" size={14} color={theme.accent} />
-            <Text style={[styles.pillText, { color: theme.textPrimary }]}>Leaves</Text>
-          </View>
-        </View>
 
-        {/* Progress Bar */}
-        <View style={[styles.progressContainer, { backgroundColor: theme.cardBorder }]}>
-          <View style={[styles.progressBar, { width: `${progress}%`, backgroundColor: theme.primary }]} />
+          {/* Loading Progress Bar */}
+          <View style={styles.progressContainer}>
+            <View style={[styles.progressBar, { width: `${progress}%` }]} />
+          </View>
+          <Text style={styles.loadingText}>
+            Loading Workspace... {progress}%
+          </Text>
+
         </View>
-        <Text style={[styles.loadingText, { color: theme.textMuted }]}>
-          Loading Workspace... {progress}%
-        </Text>
       </Animated.View>
 
-      <TouchableOpacity style={styles.skipBtn} onPress={onFinish}>
-        <Text style={[styles.skipText, { color: theme.primary }]}>Skip</Text>
-        <Icon name="chevron-right" size={14} color={theme.primary} />
+      {/* Skip Button */}
+      <TouchableOpacity style={styles.skipBtn} onPress={onFinish} activeOpacity={0.8}>
+        <Text style={styles.skipText}>Skip</Text>
+        <Icon name="chevron-right" size={14} color="#ffffff" />
       </TouchableOpacity>
 
-      <Text style={[styles.footerText, { color: theme.textMuted }]}>Powered by SWIFT AI • v1.0.0</Text>
-    </View>
+      <Text style={styles.footerText}>Powered by SWIFT AI • v1.0.0</Text>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  bgImage: {
     flex: 1,
+    width: '100%',
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(3, 7, 18, 0.55)',
   },
   content: {
     alignItems: 'center',
-    width: '100%',
+    width: '90%',
+    maxWidth: 420,
   },
-  logoRing: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    borderWidth: 2,
-    justifyContent: 'center',
+  glassCard: {
+    width: '100%',
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    borderRadius: 28,
+    padding: 28,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.45,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  brandHeader: {
     alignItems: 'center',
     marginBottom: 24,
-    ...SHADOWS.md,
   },
-  logoInner: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoTextBold: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-  logoTextSub: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
-  appTitle: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: 1,
+  logoImage: {
+    width: 220,
+    height: 70,
     marginBottom: 6,
   },
   appTagline: {
-    fontSize: 14,
-    marginBottom: 24,
-    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.65)',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
   featurePills: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 36,
+    marginBottom: 28,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   pillText: {
+    color: '#ffffff',
     fontSize: 12,
     fontWeight: '600',
   },
   progressContainer: {
     height: 6,
-    width: width * 0.7,
-    borderRadius: 3,
+    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 4,
     overflow: 'hidden',
     marginBottom: 12,
   },
   progressBar: {
     height: '100%',
-    borderRadius: 3,
+    backgroundColor: '#0284c7',
+    borderRadius: 4,
+    shadowColor: '#38bdf8',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
   },
   loadingText: {
+    color: 'rgba(255, 255, 255, 0.75)',
     fontSize: 12,
+    fontWeight: '600',
   },
   skipBtn: {
     position: 'absolute',
@@ -178,16 +203,24 @@ const styles = StyleSheet.create({
     right: 24,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    padding: 10,
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   skipText: {
-    fontSize: 14,
+    color: '#ffffff',
+    fontSize: 13,
     fontWeight: '700',
   },
   footerText: {
     position: 'absolute',
     bottom: 30,
+    color: 'rgba(255, 255, 255, 0.45)',
     fontSize: 11,
+    fontWeight: '500',
   },
 });

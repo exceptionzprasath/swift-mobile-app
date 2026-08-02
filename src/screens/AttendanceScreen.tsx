@@ -137,7 +137,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
   const branches = companyConfig?.branches || [];
   const assignedBranch = branches.find((b: any) => b.id === currentUser?.branchId) || branches[0];
-  
+
   const branchLat = assignedBranch?.lat ?? 11.305639;
   const branchLng = assignedBranch?.lng ?? 77.703474;
   const branchRadius = assignedBranch?.radiusMeters ?? 100;
@@ -175,7 +175,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
       console.log('[Geofence] Geofencing is disabled for this branch.');
     } else {
       setResultMsg('Verifying geofence coordinates...');
-      
+
       // 2. Fetch Native GPS Location
       let empLat = 0;
       let empLng = 0;
@@ -233,7 +233,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
       // Display preview of the captured face
       setCapturedImageUri(asset.uri || null);
-      
+
       // Update status to verifying
       setScanningStatus('verifying');
 
@@ -290,7 +290,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
           onPress={() => setActiveTab('punch')}
         >
           <Text style={[styles.subTabText, { color: theme.textMuted }, activeTab === 'punch' && { color: '#ffffff' }]}>
-            AWS Rekognition Face Punch
+            Face Punch
           </Text>
         </TouchableOpacity>
 
@@ -442,7 +442,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                     {userLogs[0]?.clockIn || (isClockedIn ? '09:05 AM' : '--:--')}
                   </Text>
                   <Text style={[styles.timeMeta, { color: theme.textMuted }]}>
-                    {userLogs[0]?.faceVerified ? '✅ AWS Rekognition Face Match Verified' : isClockedIn ? '✅ AWS Rekognition Verified (99.4%)' : 'Pending Check-In'}
+                    {userLogs[0]?.faceVerified ? '✅ Face Match Verified' : isClockedIn ? '✅ Verified (99.4%)' : 'Pending Check-In'}
                   </Text>
                 </View>
               </View>
@@ -572,7 +572,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Icon name="camera" size={20} color={theme.primary} />
-                <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>AWS Biometric Face Scan</Text>
+                <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Biometric Face Scan</Text>
               </View>
               <TouchableOpacity onPress={() => setScannerModalVisible(false)}>
                 <Icon name="cross" size={18} color={theme.textMuted} />
@@ -614,7 +614,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
               <View style={styles.loadingRow}>
                 <ActivityIndicator size="small" color={theme.primary} />
                 <Text style={[styles.statusMsg, { color: theme.primary }]}>
-                  {scanningStatus === 'capturing' ? 'Capturing Biometric Frame...' : 'Verifying with AWS Rekognition...'}
+                  {scanningStatus === 'capturing' ? 'Capturing Biometric Frame...' : 'Verifying ...'}
                 </Text>
               </View>
             )}

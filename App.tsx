@@ -25,7 +25,7 @@ function MainAppContent() {
   const [isDarkMode, setIsDarkMode] = useState(false); // Light theme default
   const [activeTab, setActiveTab] = useState<AppNavTab>('home');
 
-  const { isLoggedIn, currentUser, login, logout } = useAppContext();
+  const { isLoggedIn, currentUser, companyConfig, login, logout } = useAppContext();
   const theme: ThemeColors = isDarkMode ? DARK_THEME : LIGHT_THEME;
 
   const toggleTheme = () => {
@@ -108,11 +108,11 @@ function MainAppContent() {
       <Header
         theme={theme}
         employeeName={currentUser?.name || 'Alex Mercer'}
-        companyName="SWIFT Demo Pvt Ltd"
+        profilePhoto={currentUser?.photoDataUrl}
+        companyName={currentUser?.companyName || companyConfig?.companyName || 'SWIFT HRMS'}
         unreadCount={3}
         onNotificationPress={() => setActiveTab('notifications')}
         onProfilePress={() => setActiveTab('profile')}
-        onToggleTheme={toggleTheme}
       />
 
       {/* Main Body */}

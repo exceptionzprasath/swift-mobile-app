@@ -1,54 +1,64 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { ThemeColors, SHADOWS } from '../theme/colors';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { ThemeColors } from '../theme/colors';
 import { Icon } from './Icon';
 
 interface HeaderProps {
   theme: ThemeColors;
   employeeName?: string;
+  profilePhoto?: string;
   companyName?: string;
   unreadCount?: number;
   onNotificationPress: () => void;
   onProfilePress: () => void;
-  onToggleTheme: () => void;
 }
 
 export function Header({
   theme,
-  employeeName = 'Alex Mercer',
+  employeeName = 'Yuji',
+  profilePhoto,
   companyName = 'SWIFT Demo Pvt Ltd',
   unreadCount = 3,
   onNotificationPress,
   onProfilePress,
-  onToggleTheme,
 }: HeaderProps) {
+  const initial = employeeName.charAt(0).toUpperCase();
+
   return (
     <View style={[styles.headerContainer, { backgroundColor: theme.headerBg, borderBottomColor: theme.cardBorder }]}>
-      <TouchableOpacity style={styles.leftSection} onPress={onProfilePress} activeOpacity={0.8}>
-        <View style={[styles.avatarCircle, { backgroundColor: theme.primary, borderColor: theme.accent }]}>
-          <Text style={styles.avatarText}>{employeeName.charAt(0)}</Text>
+      {/* Left: Avatar Profile Picture with Glowing Ring & Greeting */}
+      <TouchableOpacity style={styles.leftSection} onPress={onProfilePress} activeOpacity={0.85}>
+        <View style={[styles.avatarGlowRing, { borderColor: theme.primary, backgroundColor: theme.isDark ? 'rgba(2, 132, 199, 0.15)' : '#e0f2fe' }]}>
+          {profilePhoto ? (
+            <Image
+              source={{ uri: profilePhoto }}
+              style={styles.avatarImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.avatarInner, { backgroundColor: theme.primary }]}>
+              <Text style={styles.avatarText}>{initial}</Text>
+            </View>
+          )}
         </View>
-        <View>
-          <Text style={[styles.welcomeText, { color: theme.textPrimary }]}>Hello, {employeeName}</Text>
-          <Text style={[styles.companyText, { color: theme.textMuted }]}>{companyName}</Text>
+
+        <View style={styles.userInfo}>
+          <Text style={[styles.welcomeText, { color: theme.textPrimary }]}>
+            Hello, {employeeName} 👋
+          </Text>
+          <Text style={[styles.companyText, { color: theme.textMuted }]}>
+            {companyName}
+          </Text>
         </View>
       </TouchableOpacity>
 
+      {/* Right: Notifications & Brand Box */}
       <View style={styles.rightSection}>
-        {/* Theme Switcher Toggle */}
-        <TouchableOpacity
-          style={[styles.iconBtn, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}
-          onPress={onToggleTheme}
-          activeOpacity={0.7}
-        >
-          <Icon name={theme.isDark ? 'sun' : 'moon'} size={18} color={theme.primary} />
-        </TouchableOpacity>
-
         {/* Notification Bell */}
         <TouchableOpacity
-          style={[styles.iconBtn, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}
+          style={[styles.iconBtn, { backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.05)', borderColor: theme.cardBorder }]}
           onPress={onNotificationPress}
-          activeOpacity={0.7}
+          activeOpacity={0.75}
         >
           <Icon name="bell" size={18} color={theme.textPrimary} />
           {unreadCount > 0 && (
@@ -58,9 +68,13 @@ export function Header({
           )}
         </TouchableOpacity>
 
-        {/* SWIFT Emblem */}
-        <View style={[styles.swiftMiniLogo, { backgroundColor: theme.primary, borderColor: theme.primaryLight }]}>
-          <Text style={[styles.swiftLogoText, { color: theme.accent }]}>S</Text>
+        {/* SWIFT Brand Card Box */}
+        <View style={[styles.brandBox, { backgroundColor: theme.isDark ? '#020617' : '#0f172a', borderColor: theme.cardBorder }]}>
+          <Image
+            source={require('../assets/logo-swift.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
         </View>
       </View>
     </View>
@@ -72,9 +86,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingTop: 50,
-    paddingBottom: 14,
+    paddingHorizontal: 16,
+    paddingTop: 44,
+    paddingBottom: 12,
     borderBottomWidth: 1,
   },
   leftSection: {
@@ -82,40 +96,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  avatarCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  avatarGlowRing: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
-    ...SHADOWS.sm,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  avatarInner: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   avatarText: {
     color: '#ffffff',
     fontSize: 18,
     fontWeight: '800',
   },
+  userInfo: {
+    justifyContent: 'center',
+  },
   welcomeText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   companyText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
+    marginTop: 1,
   },
   rightSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
   },
   unreadBadge: {
     position: 'absolute',
@@ -134,16 +164,17 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
   },
-  swiftMiniLogo: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+  brandBox: {
+    width: 52,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
+    paddingHorizontal: 4,
   },
-  swiftLogoText: {
-    fontSize: 18,
-    fontWeight: '900',
+  logoImage: {
+    width: 44,
+    height: 28,
   },
 });

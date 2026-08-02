@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Image,
 } from 'react-native';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
@@ -37,8 +38,12 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
     <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
       {/* Profile Header */}
       <View style={styles.profileHeader}>
-        <View style={[styles.avatarLarge, { backgroundColor: theme.primary, borderColor: theme.accent }]}>
-          <Text style={styles.avatarText}>{initial}</Text>
+        <View style={[styles.avatarLarge, { backgroundColor: theme.primary, borderColor: theme.accent, overflow: 'hidden' }]}>
+          {currentUser?.photoDataUrl ? (
+            <Image source={{ uri: currentUser.photoDataUrl }} style={styles.avatarImageLarge} resizeMode="cover" />
+          ) : (
+            <Text style={styles.avatarText}>{initial}</Text>
+          )}
         </View>
         <Text style={[styles.name, { color: theme.textPrimary }]}>{currentUser?.name || 'Alex Mercer'}</Text>
         <Text style={[styles.role, { color: theme.textMuted }]}>{currentUser?.designation || 'Senior Software Engineer'}</Text>
@@ -151,6 +156,11 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 34,
     fontWeight: '900',
+  },
+  avatarImageLarge: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
   },
   name: {
     fontSize: 22,

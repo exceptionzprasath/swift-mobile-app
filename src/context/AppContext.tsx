@@ -25,6 +25,7 @@ export interface Employee {
   shift?: string;
   branchId?: string;
   branch?: string;
+  companyName?: string;
   reportingManager?: string;
   managerId?: string;
   status?: string;
@@ -168,7 +169,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       setEmployees(combined);
     }
-    if (data?.config) setCompanyConfig(data.config);
+    let companyName = data?.config?.companyName || data?.companyName;
+    if (!companyName && tenantId) {
+      try {
+        const tRes = await fetch(`${BACKEND_URL}/api/tenants`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+        if (tRes.ok) {
+          const tenants = await tRes.json();
+          const matchedTenant = tenants.find((t: any) => t.id === tenantId);
+          if (matchedTenant) {
+            companyName = matchedTenant.name || matchedTenant.companyName || matchedTenant.legal_name;
+          }
+        }
+      } catch (e) {}
+    }
+
+    setCompanyConfig((prev: any) => ({
+      ...(prev || {}),
+      ...(data?.config || {}),
+      companyName: companyName || prev?.companyName || 'SWIFT HRMS',
+    }));
+
+    if (companyName) {
+      setCurrentUser((prev) => (prev ? { ...prev, companyName } : null));
+    }
+
     if (data?.attendance) setAttendance(data.attendance);
     if (data?.leaves) setLeaves(data.leaves);
     if (data?.payrolls) setPayrolls(data.payrolls);
@@ -203,10 +227,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         
         setTenantId(employeeTenantId);
 
+        const realCompanyName = data.companyName || data.config?.companyName || found.companyName || 'SWIFT HRMS';
+
         const authenticatedEmployee: Employee = {
           ...found,
           id: found.id,
           tenantId: employeeTenantId,
+          companyName: realCompanyName,
           empCode: found.empCode || found.code || found.id || 'SW001',
           name: found.name || 'Employee',
           email: found.email || 'employee@swift.ai',
@@ -221,6 +248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
 
         setCurrentUser(authenticatedEmployee);
+        setCompanyConfig((prev: any) => ({ ...prev, companyName: realCompanyName }));
         setIsLoggedIn(true);
 
         setTasks([

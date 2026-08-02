@@ -6,8 +6,13 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
+  ImageBackground,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
-import { ThemeColors, SHADOWS } from '../theme/colors';
+import { ThemeColors } from '../theme/colors';
 import { Icon } from '../components/Icon';
 
 interface LoginScreenProps {
@@ -43,92 +48,126 @@ export function LoginScreen({ theme, onLogin }: LoginScreenProps) {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <View style={styles.content}>
-        {/* Brand Header */}
-        <View style={styles.brandContainer}>
-          <View style={[styles.logoCircle, { backgroundColor: theme.primary, borderColor: theme.primaryLight }]}>
-            <Text style={[styles.logoText, { color: theme.accent }]}>S</Text>
-          </View>
-          <Text style={[styles.brandName, { color: theme.textPrimary }]}>SWIFT HRMS</Text>
-          <Text style={[styles.brandTagline, { color: theme.textMuted }]}>Employee Mobile Portal</Text>
-        </View>
+    <ImageBackground
+      source={require('../assets/swift.png')}
+      style={styles.bgImage}
+      resizeMode="cover"
+    >
+      {/* Dark Glassmorphic Ambient Overlay */}
+      <View style={styles.overlay} />
 
-        {/* Card Form */}
-        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-          <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Employee Sign In</Text>
-          <Text style={[styles.cardSubtitle, { color: theme.textMuted }]}>
-            Sign in with your Employee Code or Work Email and Password assigned in Company Admin Portal.
-          </Text>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
+            {/* Glassmorphism Frosted Container */}
+            <View style={styles.glassCard}>
 
-          {errorMsg ? (
-            <View style={[styles.errorBanner, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]}>
-              <Icon name="info" size={16} color={theme.danger} />
-              <Text style={[styles.errorText, { color: theme.danger }]}>{errorMsg}</Text>
+              {/* Brand Logo Header */}
+              <View style={styles.brandHeader}>
+                <Image
+                  source={require('../assets/logo-swift.png')}
+                  style={styles.logoImage}
+                  resizeMode="contain"
+                />
+                <Text style={styles.brandTagline}>ENTERPRISE HR & MOBILE PORTAL</Text>
+              </View>
+
+              {/* Card Title & Subtitle */}
+              <Text style={styles.cardTitle}>Welcome Back</Text>
+              <Text style={styles.cardSubtitle}>
+                Sign in with your Employee Code or Work Email
+              </Text>
+
+              {errorMsg ? (
+                <View style={styles.errorBanner}>
+                  <Icon name="info" size={16} color="#ef4444" />
+                  <Text style={styles.errorText}>{errorMsg}</Text>
+                </View>
+              ) : null}
+
+              {/* Employee Code Input */}
+              <Text style={styles.inputLabel}>Employee Code or Work Email</Text>
+              <View style={styles.inputWrapper}>
+                <Icon name="user" size={18} color="rgba(255, 255, 255, 0.65)" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. SW009 or employee@company.com"
+                  placeholderTextColor="rgba(255, 255, 255, 0.4)"
+                  value={empCode}
+                  onChangeText={setEmpCode}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+              </View>
+
+              {/* Password Input */}
+              <Text style={styles.inputLabel}>Password</Text>
+              <View style={styles.inputWrapper}>
+                <Icon name="shield" size={18} color="rgba(255, 255, 255, 0.65)" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter password"
+                  placeholderTextColor="rgba(255, 255, 255, 0.4)"
+                  secureTextEntry={!showPassword}
+                  value={password}
+                  onChangeText={setPassword}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                  <Icon name={showPassword ? 'sun' : 'moon'} size={16} color="rgba(255, 255, 255, 0.65)" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Submit Action Button */}
+              <TouchableOpacity
+                style={styles.signInBtn}
+                onPress={handleSignIn}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <>
+                    <Text style={styles.signInBtnText}>Sign In to Portal</Text>
+                    <Icon name="chevron-right" size={18} color="#ffffff" />
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
-          ) : null}
 
-          {/* Employee Code Input */}
-          <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>Employee Code or Email</Text>
-          <View style={[styles.inputWrapper, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-            <Icon name="user" size={18} color={theme.textMuted} />
-            <TextInput
-              style={[styles.input, { color: theme.textPrimary }]}
-              placeholder="Enter Employee Code or Email"
-              placeholderTextColor={theme.textMuted}
-              value={empCode}
-              onChangeText={setEmpCode}
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
+            {/* Footer Text */}
+            <Text style={styles.footerText}>
+              SWIFT HRMS • Secure Biometric & Geofenced Access
+            </Text>
           </View>
-
-          {/* Password Input */}
-          <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>Password</Text>
-          <View style={[styles.inputWrapper, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-            <Icon name="shield" size={18} color={theme.textMuted} />
-            <TextInput
-              style={[styles.input, { color: theme.textPrimary }]}
-              placeholder="Enter password"
-              placeholderTextColor={theme.textMuted}
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-            />
-            <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-              <Icon name={showPassword ? 'sun' : 'moon'} size={16} color={theme.textMuted} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Submit Button */}
-          <TouchableOpacity
-            style={[styles.signInBtn, { backgroundColor: theme.primary }]}
-            onPress={handleSignIn}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            {loading ? (
-              <ActivityIndicator color="#ffffff" size="small" />
-            ) : (
-              <>
-                <Text style={styles.signInBtnText}>Sign In to Portal</Text>
-                <Icon name="chevron-right" size={18} color="#ffffff" />
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <Text style={[styles.footerText, { color: theme.textMuted }]}>
-          Need help signing in? Contact your HR Administrator in Company Admin Portal.
-        </Text>
-      </View>
-    </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  bgImage: {
     flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  overlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(3, 7, 18, 0.55)',
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 20,
   },
@@ -137,104 +176,119 @@ const styles = StyleSheet.create({
     maxWidth: 440,
     alignSelf: 'center',
   },
-  brandContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  logoCircle: {
-    width: 56,
-    height: 56,
+  glassCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
     borderRadius: 28,
-    borderWidth: 2,
-    justifyContent: 'center',
+    padding: 24,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.45,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  brandHeader: {
     alignItems: 'center',
-    marginBottom: 8,
-    ...SHADOWS.md,
+    marginBottom: 18,
   },
-  logoText: {
-    fontSize: 28,
-    fontWeight: '900',
-  },
-  brandName: {
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: 1,
+  logoImage: {
+    width: 200,
+    height: 65,
+    marginBottom: 6,
   },
   brandTagline: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  card: {
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    ...SHADOWS.md,
+    color: 'rgba(255, 255, 255, 0.55)',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
   cardTitle: {
-    fontSize: 18,
+    color: '#ffffff',
+    fontSize: 22,
     fontWeight: '800',
-    marginBottom: 2,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   cardSubtitle: {
-    fontSize: 11,
-    lineHeight: 15,
-    marginBottom: 14,
+    color: 'rgba(255, 255, 255, 0.65)',
+    fontSize: 12,
+    marginBottom: 18,
+    textAlign: 'center',
+    lineHeight: 16,
   },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    padding: 10,
-    borderRadius: 10,
+    padding: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    marginBottom: 12,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    marginBottom: 14,
   },
   errorText: {
+    color: '#fca5a5',
     fontSize: 11,
     fontWeight: '600',
     flex: 1,
   },
   inputLabel: {
+    color: 'rgba(255, 255, 255, 0.85)',
     fontSize: 12,
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 6,
     marginTop: 4,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    height: 46,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 14,
+    height: 48,
     gap: 10,
-    marginBottom: 10,
+    marginBottom: 14,
   },
   input: {
     flex: 1,
+    color: '#ffffff',
     fontSize: 13,
+    fontWeight: '500',
   },
   eyeBtn: {
-    padding: 4,
+    padding: 6,
   },
   signInBtn: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    height: 46,
-    borderRadius: 14,
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: '#0284c7',
     marginTop: 10,
     gap: 8,
-    ...SHADOWS.sm,
+    shadowColor: '#0284c7',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
   },
   signInBtnText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
+    letterSpacing: 0.5,
   },
   footerText: {
     textAlign: 'center',
+    color: 'rgba(255, 255, 255, 0.45)',
     fontSize: 11,
-    marginTop: 18,
+    marginTop: 20,
+    fontWeight: '500',
   },
 });

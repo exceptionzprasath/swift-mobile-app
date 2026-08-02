@@ -28,6 +28,7 @@ export type IconName =
   | 'send'
   | 'sparkles'
   | 'shield'
+  | 'calendar'
   | 'filter';
 
 interface IconProps {
@@ -66,6 +67,7 @@ export function Icon({ name, size = 20, color = '#0f766e' }: IconProps) {
       );
 
     case 'leaves':
+    case 'calendar':
       return (
         <View style={{ width: size, height: size, borderRadius: 3, borderWidth: 2, borderColor: color, overflow: 'hidden' }}>
           <View style={{ height: 4, backgroundColor: color }} />
