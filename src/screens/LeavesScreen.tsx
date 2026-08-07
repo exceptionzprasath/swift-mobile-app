@@ -18,12 +18,14 @@ interface LeavesScreenProps {
 }
 
 export function LeavesScreen({ theme }: LeavesScreenProps) {
-  const { leaves, applyLeave, refreshData } = useAppContext();
+  const { leaves, applyLeave, refreshData, currentUser } = useAppContext();
   const [requestType, setRequestType] = useState<'leave' | 'permission'>('leave');
   const [leaveCategory, setLeaveCategory] = useState<'Casual' | 'Sick' | 'Earned'>('Casual');
   const [permissionHours, setPermissionHours] = useState('1');
   const [reason, setReason] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  const isLeaveEligible = currentUser?.leaveApplyEligible !== false;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -32,6 +34,14 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
   }, [refreshData]);
 
   const handleSubmit = async () => {
+    if (!isLeaveEligible) {
+      Alert.alert(
+        'Leave Applications Locked',
+        'Leave applications are currently not enabled for your account by your HR administrator.'
+      );
+      return;
+    }
+
     if (!reason.trim()) {
       Alert.alert('Required', 'Please enter a valid reason for your request.');
       return;
@@ -84,88 +94,119 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
         </View>
       </View>
 
-      {/* Application Form */}
-      <View style={[styles.formCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-        <Text style={[styles.formHeader, { color: theme.textPrimary }]}>Apply New Request</Text>
+        {/* Application Form */}
+        <View style={[styles.formCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+          <Text style={[styles.formHeader, { color: theme.textPrimary }]}>Apply New Request</Text>
 
-        {/* Toggle Request Type */}
-        <View style={[styles.typeToggle, { backgroundColor: theme.inputBg }]}>
+          {!isLeaveEligible && (
+            <View style={[styles.lockedBanner, { backgroundColor: theme.danger + '18', borderColor: theme.danger + '40' }]}>
+              <Icon name="lock-closed-outline" size={20} color={theme.danger} />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={[styles.lockedTitle, { color: theme.danger }]}>Leave Applications Locked</Text>
+                <Text style={[styles.lockedSubtitle, { color: theme.textMuted }]}>
+                  Your account is not enabled for leave applications by HR. Please contact your HR Manager.
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Toggle Request Type */}
+          <View style={[styles.typeToggle, { backgroundColor: theme.inputBg, opacity: isLeaveEligible ? 1 : 0.6 }]}>
+            <TouchableOpacity
+              style={[styles.toggleOption, requestType === 'leave' && { backgroundColor: theme.primary }]}
+              onPress={() => isLeaveEligible && setRequestType('leave')}
+              disabled={!isLeaveEligible}
+            >
+              <Text style={[styles.toggleText, { color: theme.textMuted }, requestType === 'leave' && { color: '#ffffff' }]}>
+                Leave Request
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toggleOption, requestType === 'permission' && { backgroundColor: theme.primary }]}
+              onPress={() => isLeaveEligible && setRequestType('permission')}
+              disabled={!isLeaveEligible}
+            >
+              <Text style={[styles.toggleText, { color: theme.textMuted }, requestType === 'permission' && { color: '#ffffff' }]}>
+                Short Permission
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {requestType === 'leave' ? (
+            <View style={{ opacity: isLeaveEligible ? 1 : 0.6 }}>
+              <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Select Leave Category</Text>
+              <View style={styles.categoryRow}>
+                {(['Casual', 'Sick', 'Earned'] as const).map((cat) => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[
+                      styles.catChip,
+                      { backgroundColor: theme.inputBg, borderColor: theme.cardBorder },
+                      leaveCategory === cat && { backgroundColor: theme.accent, borderColor: theme.accent },
+                    ]}
+                    onPress={() => isLeaveEligible && setLeaveCategory(cat)}
+                    disabled={!isLeaveEligible}
+                  >
+                    <Text style={[styles.catText, { color: theme.textMuted }, leaveCategory === cat && { color: '#ffffff' }]}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : (
+            <View style={{ opacity: isLeaveEligible ? 1 : 0.6 }}>
+              <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Select Permission Slot</Text>
+              <View style={styles.categoryRow}>
+                {['1', '2'].map((hrs) => (
+                  <TouchableOpacity
+                    key={hrs}
+                    style={[
+                      styles.catChip,
+                      { backgroundColor: theme.inputBg, borderColor: theme.cardBorder },
+                      permissionHours === hrs && { backgroundColor: theme.accent, borderColor: theme.accent },
+                    ]}
+                    onPress={() => isLeaveEligible && setPermissionHours(hrs)}
+                    disabled={!isLeaveEligible}
+                  >
+                    <Text style={[styles.catText, { color: theme.textMuted }, permissionHours === hrs && { color: '#ffffff' }]}>
+                      {hrs} Hour Slot
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Reason for Request</Text>
+          <TextInput
+            style={[
+              styles.textInput,
+              { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder },
+              !isLeaveEligible && { opacity: 0.6 }
+            ]}
+            placeholder={isLeaveEligible ? "Enter detailed reason for manager review..." : "Leave applications are currently locked..."}
+            placeholderTextColor={theme.textMuted}
+            value={reason}
+            onChangeText={setReason}
+            editable={isLeaveEligible}
+            multiline
+          />
+
           <TouchableOpacity
-            style={[styles.toggleOption, requestType === 'leave' && { backgroundColor: theme.primary }]}
-            onPress={() => setRequestType('leave')}
+            style={[
+              styles.submitBtn,
+              { backgroundColor: isLeaveEligible ? theme.primary : theme.cardBorder },
+              !isLeaveEligible && { opacity: 0.7 }
+            ]}
+            onPress={handleSubmit}
+            activeOpacity={isLeaveEligible ? 0.8 : 1}
           >
-            <Text style={[styles.toggleText, { color: theme.textMuted }, requestType === 'leave' && { color: '#ffffff' }]}>
-              Leave Request
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toggleOption, requestType === 'permission' && { backgroundColor: theme.primary }]}
-            onPress={() => setRequestType('permission')}
-          >
-            <Text style={[styles.toggleText, { color: theme.textMuted }, requestType === 'permission' && { color: '#ffffff' }]}>
-              Short Permission
+            <Text style={[styles.submitBtnText, !isLeaveEligible && { color: theme.textMuted }]}>
+              {isLeaveEligible ? 'Submit Application →' : '🔒 Leave Application Locked by HR'}
             </Text>
           </TouchableOpacity>
         </View>
-
-        {requestType === 'leave' ? (
-          <View>
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Select Leave Category</Text>
-            <View style={styles.categoryRow}>
-              {(['Casual', 'Sick', 'Earned'] as const).map((cat) => (
-                <TouchableOpacity
-                  key={cat}
-                  style={[
-                    styles.catChip,
-                    { backgroundColor: theme.inputBg, borderColor: theme.cardBorder },
-                    leaveCategory === cat && { backgroundColor: theme.accent, borderColor: theme.accent },
-                  ]}
-                  onPress={() => setLeaveCategory(cat)}
-                >
-                  <Text style={[styles.catText, { color: theme.textMuted }, leaveCategory === cat && { color: '#ffffff' }]}>
-                    {cat}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        ) : (
-          <View>
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Select Permission Slot</Text>
-            <View style={styles.categoryRow}>
-              {['1', '2'].map((hrs) => (
-                <TouchableOpacity
-                  key={hrs}
-                  style={[
-                    styles.catChip,
-                    { backgroundColor: theme.inputBg, borderColor: theme.cardBorder },
-                    permissionHours === hrs && { backgroundColor: theme.accent, borderColor: theme.accent },
-                  ]}
-                  onPress={() => setPermissionHours(hrs)}
-                >
-                  <Text style={[styles.catText, { color: theme.textMuted }, permissionHours === hrs && { color: '#ffffff' }]}>
-                    {hrs} Hour Slot
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
-
-        <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Reason for Request</Text>
-        <TextInput
-          style={[styles.textInput, { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder }]}
-          placeholder="Enter detailed reason for manager review..."
-          placeholderTextColor={theme.textMuted}
-          value={reason}
-          onChangeText={setReason}
-          multiline
-        />
-
-        <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={handleSubmit} activeOpacity={0.8}>
-          <Text style={styles.submitBtnText}>Submit Application →</Text>
-        </TouchableOpacity>
-      </View>
 
       {/* History List */}
       <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Request History</Text>
@@ -314,6 +355,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
+  },
+  lockedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  lockedTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  lockedSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
   },
   statusText: {
     fontSize: 10,

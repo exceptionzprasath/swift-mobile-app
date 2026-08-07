@@ -31,6 +31,14 @@ export interface Employee {
   status?: string;
   faceRegistered?: boolean;
   photoDataUrl?: string;
+  fixedSalary?: number;
+  pfEligible?: boolean;
+  esiEligible?: boolean;
+  ptEligible?: boolean;
+  tdsEligible?: boolean;
+  eligibleDate?: string;
+  probationDate?: string;
+  leaveApplyEligible?: boolean;
 }
 
 export interface AttendanceRecord {

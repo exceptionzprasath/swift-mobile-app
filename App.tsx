@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, StatusBar, SafeAreaView } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LIGHT_THEME, DARK_THEME, ThemeColors } from './src/theme/colors';
 import { AppProvider, useAppContext } from './src/context/AppContext';
 import { SplashView } from './src/components/SplashView';
@@ -137,9 +138,11 @@ function MainAppContent() {
 
 export function App() {
   return (
-    <AppProvider>
-      <MainAppContent />
-    </AppProvider>
+    <SafeAreaProvider>
+      <AppProvider>
+        <MainAppContent />
+      </AppProvider>
+    </SafeAreaProvider>
   );
 }
 

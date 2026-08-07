@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemeColors } from '../theme/colors';
 import { Icon, IconName } from './Icon';
 
@@ -13,6 +14,15 @@ interface TabBarProps {
 }
 
 export function TabBar({ theme, activeTab, onTabChange, leavePendingCount = 1 }: TabBarProps) {
+  let bottomInset = 0;
+  try {
+    const insets = useSafeAreaInsets();
+    bottomInset = insets?.bottom || 0;
+  } catch (e) {}
+
+  // Support for both 3-button navigation bar and gesture navigation
+  const safeBottomPadding = Math.max(bottomInset, 12);
+
   const tabs: { id: TabType; label: string; icon: IconName }[] = [
     { id: 'home', label: 'Home', icon: 'home' },
     { id: 'attendance', label: 'Attendance', icon: 'clock' },
@@ -22,7 +32,17 @@ export function TabBar({ theme, activeTab, onTabChange, leavePendingCount = 1 }:
   ];
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.tabBarBg, borderTopColor: theme.tabBarBorder }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.tabBarBg,
+          borderTopColor: theme.tabBarBorder,
+          paddingBottom: safeBottomPadding,
+          height: 58 + safeBottomPadding,
+        },
+      ]}
+    >
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         const iconColor = isActive ? (theme.isDark ? '#38bdf8' : theme.primary) : theme.textMuted;
@@ -68,10 +88,8 @@ export function TabBar({ theme, activeTab, onTabChange, leavePendingCount = 1 }:
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    height: 72,
     borderTopWidth: 1,
-    paddingBottom: 10,
-    paddingTop: 8,
+    paddingTop: 6,
     justifyContent: 'space-around',
     alignItems: 'center',
     paddingHorizontal: 8,
@@ -79,20 +97,20 @@ const styles = StyleSheet.create({
   tabItem: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    minWidth: 62,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 18,
+    minWidth: 58,
   },
   label: {
     fontSize: 10,
     fontWeight: '600',
-    marginTop: 3,
+    marginTop: 2,
   },
   activeLine: {
     position: 'absolute',
-    bottom: -4,
-    width: 20,
+    bottom: -3,
+    width: 18,
     height: 3,
     borderRadius: 1.5,
   },
