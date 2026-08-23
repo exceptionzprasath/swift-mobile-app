@@ -32,7 +32,7 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
     );
   };
 
-  const initial = currentUser?.name ? currentUser.name.charAt(0) : 'A';
+  const initial = currentUser?.name ? currentUser.name.charAt(0) : 'E';
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
@@ -45,11 +45,11 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
             <Text style={styles.avatarText}>{initial}</Text>
           )}
         </View>
-        <Text style={[styles.name, { color: theme.textPrimary }]}>{currentUser?.name || 'Alex Mercer'}</Text>
-        <Text style={[styles.role, { color: theme.textMuted }]}>{currentUser?.designation || 'Senior Software Engineer'}</Text>
+        <Text style={[styles.name, { color: theme.textPrimary }]}>{currentUser?.name || 'Employee'}</Text>
+        <Text style={[styles.role, { color: theme.textMuted }]}>{currentUser?.designation || 'Team Member'}</Text>
         <View style={[styles.empIdTag, { backgroundColor: theme.tealSoft, borderColor: theme.primaryLight }]}>
           <Text style={[styles.empIdText, { color: theme.primary }]}>
-            ID: {currentUser?.code || 'EMP-10492'} • Full-Time
+            ID: {currentUser?.empCode || currentUser?.code || currentUser?.id || 'EMP-001'} • Full-Time
           </Text>
         </View>
       </View>
@@ -59,11 +59,11 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
       <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Department</Text>
-          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.department || 'Engineering & Tech'}</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.department || 'General'}</Text>
         </View>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Branch Location</Text>
-          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.branch || 'HQ Branch (Chennai)'}</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.branch || 'Head Office'}</Text>
         </View>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Current Shift</Text>
@@ -71,11 +71,11 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
         </View>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Reporting Manager</Text>
-          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.reportingManager || 'Sarah Jenkins (VP Engg)'}</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.reportingManager || 'HR Administrator'}</Text>
         </View>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Date of Joining</Text>
-          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.joiningDate || 'Jan 15, 2024'}</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.joiningDate || currentUser?.doj || 'Active'}</Text>
         </View>
       </View>
 
@@ -84,19 +84,19 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
       <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Work Email</Text>
-          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.email || 'alex.mercer@swift.ai'}</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.email || 'employee@swift.ai'}</Text>
         </View>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Mobile Number</Text>
-          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>+91 98765 43210</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.phone || '+91 98765 43210'}</Text>
         </View>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Salary Bank</Text>
-          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.bankAccount || 'HDFC Bank (A/C: •••• 4912)'}</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.bankAccount || (currentUser?.bankAcc ? `Bank A/C: ${currentUser.bankAcc}` : 'Registered Bank Account')}</Text>
         </View>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>PAN Card</Text>
-          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.panNumber || 'ABCDE1234F'}</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.panNumber || currentUser?.pan || 'Verified'}</Text>
         </View>
       </View>
 

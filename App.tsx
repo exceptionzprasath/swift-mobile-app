@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { View, StyleSheet, StatusBar, SafeAreaView } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LIGHT_THEME, DARK_THEME, ThemeColors } from './src/theme/colors';
-import { AppProvider, useAppContext } from './src/context/AppContext';
+import { AppProvider, useAppContext, canRoleApproveDocInApp } from './src/context/AppContext';
 import { SplashView } from './src/components/SplashView';
 import { Header } from './src/components/Header';
 import { TabBar, TabType } from './src/components/TabBar';
+import { SideDrawer } from './src/components/SideDrawer';
 
 import { LoginScreen } from './src/screens/LoginScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -25,13 +26,27 @@ function MainAppContent() {
   const [showSplash, setShowSplash] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false); // Light theme default
   const [activeTab, setActiveTab] = useState<AppNavTab>('home');
+  const [isSideDrawerOpen, setIsSideDrawerOpen] = useState(false);
 
-  const { isLoggedIn, currentUser, companyConfig, login, logout } = useAppContext();
+  const { isLoggedIn, currentUser, companyConfig, login, logout, docRequests, userRole } = useAppContext();
   const theme: ThemeColors = isDarkMode ? DARK_THEME : LIGHT_THEME;
 
   const toggleTheme = () => {
     setIsDarkMode((prev) => !prev);
   };
+
+  const pendingApprovalsCount = (docRequests || []).filter(
+    (d) => d.status === 'pending' && canRoleApproveDocInApp(userRole, d.letterKey)
+  ).length;
+
+  const pendingSignatureCount = (docRequests || []).filter(
+    (d) =>
+      (d.employeeId === currentUser?.id || d.employeeId === currentUser?.empCode) &&
+      d.status === 'approved' &&
+      !d.employeeAccepted
+  ).length;
+
+  const totalUnreadNotifications = pendingApprovalsCount + pendingSignatureCount + 1;
 
   if (showSplash) {
     return <SplashView theme={theme} onFinish={() => setShowSplash(false)} />;
@@ -61,7 +76,7 @@ function MainAppContent() {
       case 'leaves':
         return <LeavesScreen theme={theme} />;
       case 'notifications':
-        return <NotificationsScreen theme={theme} />;
+        return <NotificationsScreen theme={theme} onNavigate={(tab) => setActiveTab(tab)} />;
       case 'holidays':
         return <HolidaysScreen theme={theme} />;
       case 'documents':
@@ -84,8 +99,6 @@ function MainAppContent() {
           <HomeScreen
             theme={theme}
             onNavigate={(tab) => setActiveTab(tab)}
-            isClockedIn={isClockedIn}
-            onClockToggle={handleClockToggle}
           />
         );
     }
@@ -111,9 +124,10 @@ function MainAppContent() {
         employeeName={currentUser?.name || 'Alex Mercer'}
         profilePhoto={currentUser?.photoDataUrl}
         companyName={currentUser?.companyName || companyConfig?.companyName || 'SWIFT HRMS'}
-        unreadCount={3}
+        unreadCount={totalUnreadNotifications}
         onNotificationPress={() => setActiveTab('notifications')}
         onProfilePress={() => setActiveTab('profile')}
+        onMenuPress={() => setIsSideDrawerOpen(true)}
       />
 
       {/* Main Body */}
@@ -131,6 +145,19 @@ function MainAppContent() {
           }
         }}
         leavePendingCount={1}
+      />
+
+      {/* Side Panel Drawer */}
+      <SideDrawer
+        visible={isSideDrawerOpen}
+        theme={theme}
+        onClose={() => setIsSideDrawerOpen(false)}
+        onNavigate={(tab) => {
+          setIsSideDrawerOpen(false);
+          setActiveTab(tab);
+        }}
+        onToggleTheme={toggleTheme}
+        onLogout={logout}
       />
     </SafeAreaView>
   );

@@ -28,6 +28,8 @@ export interface Employee {
   companyName?: string;
   reportingManager?: string;
   managerId?: string;
+  roleId?: string;
+  roleName?: string;
   status?: string;
   faceRegistered?: boolean;
   photoDataUrl?: string;
@@ -39,6 +41,141 @@ export interface Employee {
   eligibleDate?: string;
   probationDate?: string;
   leaveApplyEligible?: boolean;
+  geofencingEnabled?: boolean;
+  graceTime?: "always" | "10" | "15" | "20" | "25" | "30";
+  allowHalfDayLogin?: boolean;
+  halfDayLoginTime?: string;
+  documentsUploaded?: EmployeeDocument[];
+  acceptance?: {
+    signed: boolean;
+    signatureDataUrl?: string;
+    signedAt?: string;
+    ip?: string;
+  };
+  signedDocs?: Record<string, {
+    docCode: string;
+    docTitle: string;
+    signedAt: string;
+    signatureText: string;
+    signatureDataUrl?: string;
+    acknowledged: boolean;
+  }>;
+}
+
+export interface EmployeeDocument {
+  id: string;
+  type: string;
+  name: string;
+  dataUrl?: string;
+  uploadedAt: string;
+  verified?: boolean;
+}
+
+export interface DocumentPermissionTypes {
+  offerLetter: boolean;
+  appointmentLetter: boolean;
+  incrementLetter: boolean;
+  promotionLetter: boolean;
+  relievingLetter: boolean;
+  experienceLetter: boolean;
+  salaryCertificate: boolean;
+  warningLetter: boolean;
+  showCauseNotice: boolean;
+}
+
+export interface RolePermissions {
+  leaveApproval: boolean;
+  attendanceApproval: boolean;
+  payrollDashboard: boolean;
+  employeeManagement: boolean;
+  expenseHandloanApproval: boolean;
+  documentsApproval: boolean;
+  documentTypes: DocumentPermissionTypes;
+  invoiceApproval: boolean;
+  resignationApproval: boolean;
+  assetManagement: boolean;
+  noticesAnnouncements: boolean;
+  performanceReviews: boolean;
+  auditLogView: boolean;
+}
+
+export interface PredefinedRole {
+  id: string;
+  tenantId?: string;
+  name: string;
+  description: string;
+  permissions: RolePermissions;
+  isSystemDefault?: boolean;
+}
+
+export interface ApprovalStep {
+  approver: string;
+  status: "pending" | "approved" | "rejected";
+  comment?: string;
+  actedAt?: string;
+  actedBy?: string;
+}
+
+export interface DocRequest {
+  id: string;
+  tenantId?: string;
+  letterKey: string;
+  letterTitle: string;
+  employeeId: string;
+  employeeName?: string;
+  templateBody?: string;
+  format?: "pdf" | "docx";
+  requestedBy: string;
+  requestedAt: string;
+  steps: ApprovalStep[];
+  currentStep: number;
+  status: "pending" | "approved" | "rejected";
+  note?: string;
+  employeeAccepted?: boolean;
+  employeeAcceptedAt?: string;
+  employeeSignature?: string;
+}
+
+export function canRoleApproveDocInApp(
+  role: PredefinedRole | null | undefined,
+  letterKey: string
+): boolean {
+  if (!role || !role.permissions) return false;
+  if (!role.permissions.documentsApproval) return false;
+
+  const docTypes = role.permissions.documentTypes;
+  if (!docTypes) return true;
+
+  const key = (letterKey || "").toLowerCase().replace(/[^a-z]/g, "");
+  if (key.includes("offer")) return !!docTypes.offerLetter;
+  if (key.includes("appoint")) return !!docTypes.appointmentLetter;
+  if (key.includes("increment")) return !!docTypes.incrementLetter;
+  if (key.includes("promot")) return !!docTypes.promotionLetter;
+  if (key.includes("reliev")) return !!docTypes.relievingLetter;
+  if (key.includes("experien")) return !!docTypes.experienceLetter;
+  if (key.includes("salary") || key.includes("certif")) return !!docTypes.salaryCertificate;
+  if (key.includes("warn")) return !!docTypes.warningLetter;
+  if (key.includes("show") || key.includes("cause")) return !!docTypes.showCauseNotice;
+
+  return true;
+}
+
+export interface ShiftAssignment {
+  id: string;
+  tenantId?: string;
+  employeeId: string;
+  employeeName?: string;
+  empCode?: string;
+  department?: string;
+  date: string;
+  shiftId: string;
+  shiftName?: string;
+  shiftStart?: string;
+  shiftEnd?: string;
+  graceTime?: "always" | "10" | "15" | "20" | "25" | "30";
+  allowHalfDayLogin?: boolean;
+  halfDayLoginTime?: string;
+  note?: string;
 }
 
 export interface AttendanceRecord {
@@ -69,6 +206,11 @@ export interface LeaveRequest {
   reason: string;
   status: 'Pending' | 'Approved' | 'Rejected';
   createdAt: string;
+  actedBy?: string;
+  actedById?: string;
+  actedByRole?: string;
+  approverComment?: string;
+  actedAt?: string;
 }
 
 export interface TaskItem {
@@ -104,6 +246,13 @@ export interface AppContextType {
   isClockedIn: boolean;
   companyConfig: any;
   todayRecord: AttendanceRecord | undefined;
+  roles: PredefinedRole[];
+  docRequests: DocRequest[];
+  userRole: PredefinedRole | null;
+  canApproveDocuments: boolean;
+  canApproveLeaves: boolean;
+  holidays: any[];
+  roster: ShiftAssignment[];
 
   login: (empCodeOrEmail: string, pass: string) => Promise<boolean>;
   logout: () => void;
@@ -111,8 +260,15 @@ export interface AppContextType {
   clockIn: (photoDataUrl?: string) => Promise<ClockResult>;
   clockOut: (photoDataUrl?: string) => Promise<ClockResult>;
   applyLeave: (request: Omit<LeaveRequest, 'id' | 'tenantId' | 'employeeId' | 'employeeName' | 'createdAt'>) => Promise<boolean>;
+  actOnLeave: (leaveId: string, action: 'approve' | 'reject', comment?: string) => Promise<boolean>;
   toggleTask: (taskId: string) => Promise<void>;
   sendMessage: (text: string) => void;
+  actOnDocStep: (requestId: string, action: 'approve' | 'reject', comment?: string) => Promise<boolean>;
+  forwardDocStep: (requestId: string, toRole: string, comment?: string) => Promise<boolean>;
+  acceptDocument: (requestId: string, signatureDataUrl?: string) => Promise<boolean>;
+  uploadEmployeeDocument: (doc: { type: string; name: string; dataUrl: string }) => Promise<boolean>;
+  signCompanyDocument: (docCode: string, docTitle: string, signatureText: string, signatureDataUrl?: string) => Promise<boolean>;
+  deleteEmployeeDocument: (docId: string) => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -159,6 +315,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [docLibrary, setDocLibrary] = useState<any[]>([]);
   const [notices, setNotices] = useState<any[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [roles, setRoles] = useState<PredefinedRole[]>([]);
+  const [docRequests, setDocRequests] = useState<DocRequest[]>([]);
+  const [holidays, setHolidays] = useState<any[]>([]);
+  const [roster, setRoster] = useState<ShiftAssignment[]>([]);
   const [chatMessages, setChatMessages] = useState<any[]>([
     { id: 1, sender: 'bot', text: 'Hello! I am SWIFT AI Assistant 🤖. How can I help you with your HR, leave, or payroll questions today?', time: '10:00 AM' },
   ]);
@@ -206,6 +366,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (data?.payrolls) setPayrolls(data.payrolls);
     if (data?.docLibrary) setDocLibrary(data.docLibrary);
     if (data?.notices) setNotices(data.notices);
+    if (data?.roles) setRoles(data.roles);
+    if (data?.docRequests) setDocRequests(data.docRequests);
+    if (data?.holidays) setHolidays(data.holidays);
+    if (data?.roster) setRoster(data.roster);
     setLoading(false);
   };
 
@@ -385,6 +549,238 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 600);
   };
 
+  const userRole =
+    roles.find(
+      (r) =>
+        r.id === currentUser?.roleId ||
+        r.name === currentUser?.roleName ||
+        (currentUser?.designation &&
+          (r.name.toLowerCase().includes(currentUser.designation.toLowerCase()) ||
+            currentUser.designation.toLowerCase().includes(r.name.toLowerCase())))
+    ) ||
+    (currentUser?.roleName === 'CEO / Super Admin'
+      ? {
+          id: 'role-ceo',
+          name: 'CEO / Super Admin',
+          description: 'Full Super Admin Access',
+          permissions: {
+            leaveApproval: true,
+            attendanceApproval: true,
+            payrollDashboard: true,
+            employeeManagement: true,
+            expenseHandloanApproval: true,
+            documentsApproval: true,
+            documentTypes: {
+              offerLetter: true,
+              appointmentLetter: true,
+              incrementLetter: true,
+              promotionLetter: true,
+              relievingLetter: true,
+              experienceLetter: true,
+              salaryCertificate: true,
+              warningLetter: true,
+              showCauseNotice: true,
+            },
+            invoiceApproval: true,
+            resignationApproval: true,
+            assetManagement: true,
+            noticesAnnouncements: true,
+            performanceReviews: true,
+            auditLogView: true,
+          },
+        }
+      : null);
+
+  const canApproveDocuments = !!userRole?.permissions?.documentsApproval || currentUser?.roleName === 'CEO / Super Admin';
+  const canApproveLeaves = !!userRole?.permissions?.leaveApproval || currentUser?.roleName === 'CEO / Super Admin';
+
+  const actOnLeave = async (leaveId: string, action: 'approve' | 'reject', comment?: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/leaves/act`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({
+          tenantId,
+          leaveId,
+          action,
+          comment: comment || '',
+          actorId: currentUser?.id,
+          actorName: currentUser?.name,
+          actorRole: userRole?.id || userRole?.name || 'Manager',
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to act on leave request');
+      }
+      await refreshData();
+      return true;
+    } catch (e: any) {
+      console.warn('actOnLeave error:', e.message);
+      return false;
+    }
+  };
+
+  const actOnDocStep = async (requestId: string, action: 'approve' | 'reject', comment?: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/documents/act`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({
+          tenantId,
+          requestId,
+          action,
+          comment: comment || '',
+          actorId: currentUser?.id,
+          actorName: currentUser?.name,
+          actorRole: userRole?.id || userRole?.name || 'Manager',
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to act on document');
+      }
+      await refreshData();
+      return true;
+    } catch (e: any) {
+      console.warn('actOnDocStep error:', e.message);
+      return false;
+    }
+  };
+
+  const forwardDocStep = async (requestId: string, toRole: string, comment?: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/documents/forward`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({
+          tenantId,
+          requestId,
+          toRole,
+          comment: comment || '',
+          actorId: currentUser?.id,
+          actorName: currentUser?.name,
+          actorRole: userRole?.id || userRole?.name || 'Manager',
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to forward document');
+      }
+      await refreshData();
+      return true;
+    } catch (e: any) {
+      console.warn('forwardDocStep error:', e.message);
+      return false;
+    }
+  };
+
+  const acceptDocument = async (requestId: string, signatureDataUrl?: string): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/documents/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({
+          tenantId,
+          requestId,
+          employeeId: currentUser.id,
+          signatureDataUrl: signatureDataUrl || 'E-Signed by ' + currentUser.name,
+        }),
+      });
+      if (!res.ok) return false;
+      await refreshData();
+      return true;
+    } catch (e: any) {
+      console.warn('acceptDocument error:', e.message);
+      return false;
+    }
+  };
+
+  const uploadEmployeeDocument = async (doc: { type: string; name: string; dataUrl: string }): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      const newDoc: EmployeeDocument = {
+        id: 'edoc-' + Math.random().toString(36).substring(2, 9),
+        type: doc.type,
+        name: doc.name,
+        dataUrl: doc.dataUrl,
+        uploadedAt: new Date().toISOString(),
+        verified: false,
+      };
+      const updatedDocs = [...(currentUser.documentsUploaded || []), newDoc];
+      const updatedUser: Employee = {
+        ...currentUser,
+        documentsUploaded: updatedDocs,
+      };
+      setCurrentUser(updatedUser);
+      setEmployees((prev) => prev.map((e) => (e.id === currentUser.id ? updatedUser : e)));
+      await mutateTable('employees', { tenantId, ...updatedUser });
+      return true;
+    } catch (e: any) {
+      console.warn('uploadEmployeeDocument error:', e.message);
+      return false;
+    }
+  };
+
+  const signCompanyDocument = async (
+    docCode: string,
+    docTitle: string,
+    signatureText: string,
+    signatureDataUrl?: string
+  ): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      const timestamp = new Date().toISOString();
+      const signedRecord = {
+        docCode,
+        docTitle,
+        signedAt: timestamp,
+        signatureText: signatureText || currentUser.name,
+        signatureDataUrl: signatureDataUrl || undefined,
+        acknowledged: true,
+      };
+      const nextSignedDocs = {
+        ...(currentUser.signedDocs || {}),
+        [docCode]: signedRecord,
+      };
+      const updatedUser: Employee = {
+        ...currentUser,
+        signedDocs: nextSignedDocs,
+        acceptance: {
+          signed: true,
+          signatureDataUrl: signatureDataUrl || undefined,
+          signedAt: timestamp,
+        },
+      };
+      setCurrentUser(updatedUser);
+      setEmployees((prev) => prev.map((e) => (e.id === currentUser.id ? updatedUser : e)));
+      await mutateTable('employees', { tenantId, ...updatedUser });
+      return true;
+    } catch (e: any) {
+      console.warn('signCompanyDocument error:', e.message);
+      return false;
+    }
+  };
+
+  const deleteEmployeeDocument = async (docId: string): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      const updatedDocs = (currentUser.documentsUploaded || []).filter((d) => d.id !== docId);
+      const updatedUser: Employee = {
+        ...currentUser,
+        documentsUploaded: updatedDocs,
+      };
+      setCurrentUser(updatedUser);
+      setEmployees((prev) => prev.map((e) => (e.id === currentUser.id ? updatedUser : e)));
+      await mutateTable('employees', { tenantId, ...updatedUser });
+      return true;
+    } catch (e: any) {
+      console.warn('deleteEmployeeDocument error:', e.message);
+      return false;
+    }
+  };
+
   const d = new Date();
   const localToday = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const utcToday = d.toISOString().split('T')[0];
@@ -414,14 +810,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isClockedIn,
         companyConfig,
         todayRecord,
+        roles,
+        docRequests,
+        userRole,
+        canApproveDocuments,
+        canApproveLeaves,
+        holidays,
+        roster,
         login,
         logout,
         refreshData,
         clockIn,
         clockOut,
         applyLeave,
+        actOnLeave,
         toggleTask,
         sendMessage,
+        actOnDocStep,
+        forwardDocStep,
+        acceptDocument,
+        uploadEmployeeDocument,
+        signCompanyDocument,
+        deleteEmployeeDocument,
       }}
     >
       {children}

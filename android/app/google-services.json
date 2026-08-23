@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "521440704484",
+    "project_id": "swift-f35ac",
+    "storage_bucket": "swift-f35ac.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:521440704484:android:842ea69f47d196874f79f1",
+        "android_client_info": {
+          "package_name": "com.swifthr"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAhoWHRv-5Pjy9DdhV91FdOn9xHtzLxVPg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

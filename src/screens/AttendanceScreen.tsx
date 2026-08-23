@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -95,7 +95,7 @@ interface AttendanceScreenProps {
 }
 
 export function AttendanceScreen({ theme }: AttendanceScreenProps) {
-  const { currentUser, clockIn, clockOut, attendance, isClockedIn, companyConfig, refreshData } = useAppContext();
+  const { currentUser, clockIn, clockOut, attendance, isClockedIn, companyConfig, refreshData, roster } = useAppContext();
   const [activeTab, setActiveTab] = useState<'punch' | 'calendar'>('punch');
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
   const [refreshing, setRefreshing] = useState(false);
@@ -143,6 +143,124 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
   const branchRadius = assignedBranch?.radiusMeters ?? 100;
   const branchName = assignedBranch?.name || 'Head Office';
 
+  // Shift & Grace Time Punctuality Evaluation with Roster Support
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayRoster = (roster || []).find(
+    (r: any) => r.employeeId === currentUser?.id && r.date === todayStr
+  );
+
+  const shiftList = companyConfig?.shifts || [];
+  const effectiveShiftId = todayRoster ? todayRoster.shiftId : currentUser?.shiftId;
+  const isWeeklyOffToday = effectiveShiftId === 'off';
+
+  const assignedShift = shiftList.find((s: any) => s.id === effectiveShiftId) || shiftList[0] || { start: '09:00', end: '18:00', name: 'General' };
+  const shiftStartStr = todayRoster?.shiftStart || assignedShift.start || '09:00';
+  const shiftNameStr = todayRoster?.shiftName || assignedShift.name || 'General Shift';
+  const graceTimeSetting = todayRoster?.graceTime || currentUser?.graceTime || assignedShift.graceTime || '15';
+  const allowHalfDayLogin = (todayRoster?.allowHalfDayLogin ?? currentUser?.allowHalfDayLogin ?? assignedShift.allowHalfDayLogin) !== false;
+  const halfDayLoginTimeStr = todayRoster?.halfDayLoginTime || currentUser?.halfDayLoginTime || assignedShift.halfDayLoginTime || '12:00';
+
+  const punctualityStatus = useMemo(() => {
+    // If user is already clocked in, clock-out is always permitted
+    if (isClockedIn) {
+      return {
+        isAllowed: true,
+        reason: 'clock_out_ready',
+        message: 'Clock-out active. Verify face to punch out.',
+        isAfternoonSession: false,
+        unlocksAt: undefined,
+      };
+    }
+
+    // Flexible grace mode (Always)
+    if (graceTimeSetting === 'always') {
+      return {
+        isAllowed: true,
+        reason: 'flexible',
+        message: 'Flexible punch-in active (No cutoff).',
+        isAfternoonSession: false,
+        unlocksAt: undefined,
+      };
+    }
+
+    const now = new Date();
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+
+    // Parse Shift Start
+    const [startH, startM] = shiftStartStr.split(':').map((x: string) => parseInt(x, 10) || 0);
+    const shiftStartMins = startH * 60 + startM;
+
+    // Parse Grace Duration
+    const graceMins = parseInt(graceTimeSetting, 10) || 15;
+    const morningCutoffMins = shiftStartMins + graceMins;
+
+    // Parse Half Day Login Time (e.g. "12:00")
+    const [halfH, halfM] = halfDayLoginTimeStr.split(':').map((x: string) => parseInt(x, 10) || 0);
+    const halfDayMins = halfH * 60 + halfM;
+
+    // 1. Within Morning Grace Window
+    if (currentMins <= morningCutoffMins) {
+      const minsRemaining = Math.max(0, morningCutoffMins - currentMins);
+      return {
+        isAllowed: true,
+        reason: 'morning_grace_valid',
+        message: `Morning Punch Active (${minsRemaining}m grace left before ${String(Math.floor(morningCutoffMins / 60)).padStart(2, '0')}:${String(morningCutoffMins % 60).padStart(2, '0')}).`,
+        isAfternoonSession: false,
+        unlocksAt: undefined,
+      };
+    }
+
+    // 2. Morning Grace Exceeded, but Before Afternoon Window
+    if (currentMins > morningCutoffMins && currentMins < halfDayMins) {
+      if (allowHalfDayLogin) {
+        return {
+          isAllowed: false,
+          reason: 'morning_exceeded_awaiting_afternoon',
+          message: `Morning grace period exceeded (${graceMins}m). Marked Absent for Morning. Afternoon check-in opens at ${halfDayLoginTimeStr}.`,
+          isAfternoonSession: false,
+          unlocksAt: halfDayLoginTimeStr,
+        };
+      } else {
+        return {
+          isAllowed: false,
+          reason: 'locked_full_day',
+          message: `Grace period exceeded (${graceMins}m past ${shiftStartStr}). Attendance locked for the entire day (Marked Full Day Absent).`,
+          isAfternoonSession: false,
+          unlocksAt: undefined,
+        };
+      }
+    }
+
+    // 3. Afternoon Login Window Reached (>= Half Day Time)
+    if (currentMins >= halfDayMins) {
+      if (allowHalfDayLogin) {
+        return {
+          isAllowed: true,
+          reason: 'afternoon_half_day_allowed',
+          message: `Morning marked Absent. Afternoon attendance check-in active (Half Day).`,
+          isAfternoonSession: true,
+          unlocksAt: undefined,
+        };
+      } else {
+        return {
+          isAllowed: false,
+          reason: 'locked_full_day',
+          message: `Morning grace period missed. Attendance locked for full day as per policy (Marked Full Day Absent).`,
+          isAfternoonSession: false,
+          unlocksAt: undefined,
+        };
+      }
+    }
+
+    return {
+      isAllowed: true,
+      reason: 'standard',
+      message: 'Ready to punch.',
+      isAfternoonSession: false,
+      unlocksAt: undefined,
+    };
+  }, [isClockedIn, graceTimeSetting, shiftStartStr, halfDayLoginTimeStr, allowHalfDayLogin, currentTime]);
+
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date().toLocaleTimeString());
@@ -151,6 +269,14 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
   }, []);
 
   const openBiometricScanner = () => {
+    if (!punctualityStatus.isAllowed) {
+      Alert.alert(
+        'Attendance Locked',
+        punctualityStatus.message
+      );
+      return;
+    }
+
     setScanningStatus('ready');
     setResultMsg('');
     setMatchScore(null);
@@ -160,20 +286,24 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
   const handleStartBiometricVerification = async () => {
     setScanningStatus('verifying');
-    setResultMsg('Requesting device location...');
 
-    // 1. Permission Check
-    const hasPermission = await requestLocationPermission();
-    if (!hasPermission) {
-      setScanningStatus('failed');
-      setResultMsg('Geofence Failed: Location permission denied.');
-      Alert.alert('Permission Denied', 'Location permission is required to check in/out.');
-      return;
-    }
+    const isGeofenceBypassed = currentUser?.geofencingEnabled === false || !!assignedBranch?.geofenceDisabled;
 
-    if (assignedBranch?.geofenceDisabled) {
-      console.log('[Geofence] Geofencing is disabled for this branch.');
+    if (isGeofenceBypassed) {
+      console.log('[Geofence] Geofencing is bypassed for this employee. Facial recognition alone is sufficient.');
+      setResultMsg('Geofence bypassed for your profile. Initializing face scanner...');
     } else {
+      setResultMsg('Requesting device location...');
+
+      // 1. Permission Check
+      const hasPermission = await requestLocationPermission();
+      if (!hasPermission) {
+        setScanningStatus('failed');
+        setResultMsg('Geofence Failed: Location permission denied.');
+        Alert.alert('Permission Denied', 'Location permission is required to check in/out.');
+        return;
+      }
+
       setResultMsg('Verifying geofence coordinates...');
 
       // 2. Fetch Native GPS Location
@@ -202,9 +332,9 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
         );
         return;
       }
-    }
 
-    setResultMsg('Geofence verified! Initializing face scanner...');
+      setResultMsg('Geofence verified! Initializing face scanner...');
+    }
 
     try {
       // Launch native camera
@@ -266,20 +396,43 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
     }
   };
 
-  const userLogs = attendance.filter((a) => a.employeeId === (currentUser?.id || 'demo-emp-1') || a.employeeName === currentUser?.name);
+  const userLogs = attendance.filter((a) => a.employeeId === currentUser?.id || a.employeeName === currentUser?.name);
 
-  const daysInMonth = Array.from({ length: 31 }, (_, i) => {
+  const nowYearMonth = new Date();
+  const year = nowYearMonth.getFullYear();
+  const month = nowYearMonth.getMonth();
+  const daysInCurrentMonthCount = new Date(year, month + 1, 0).getDate();
+  const todayDateNum = nowYearMonth.getDate();
+
+  const daysInMonth = Array.from({ length: daysInCurrentMonthCount }, (_, i) => {
     const dayNum = i + 1;
-    let status: 'present' | 'absent' | 'late' | 'halfday' | 'holiday' | 'weekend' = 'present';
-    if (dayNum % 7 === 0 || dayNum % 7 === 6) status = 'weekend';
-    else if (dayNum === 4) status = 'absent';
-    else if (dayNum === 12 || dayNum === 22) status = 'late';
-    else if (dayNum === 18) status = 'halfday';
-    else if (dayNum === 15) status = 'holiday';
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+    const dayOfWeek = new Date(year, month, dayNum).getDay();
+    const existingRec = userLogs.find((a) => a.date === dateStr);
 
-    const otHours = dayNum % 5 === 0 && status === 'present' ? 2.5 : 0;
+    let status: 'present' | 'absent' | 'late' | 'halfday' | 'holiday' | 'weekend' = 'present';
+    let otHours = 0;
+
+    if (existingRec) {
+      status = existingRec.status;
+      otHours = Number(existingRec.otHours) || 0;
+    } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+      status = 'weekend';
+    } else if (dayNum > todayDateNum) {
+      status = 'weekend';
+    } else {
+      status = 'absent';
+    }
+
     return { day: dayNum, status, otHours };
   });
+
+  const presentDaysCount = daysInMonth.filter((d) => d.status === 'present').length;
+  const standardWorkingHours = presentDaysCount * 8;
+  const totalOtHours = daysInMonth.reduce((sum, d) => sum + d.otHours, 0);
+  const basicSalary = currentUser?.basic || 45000;
+  const hourlyRate = (basicSalary / 180) * 1.5;
+  const otTotalBonusPay = totalOtHours * hourlyRate;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -318,13 +471,93 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
               <Text style={[styles.clockDate, { color: theme.textMuted }]}>
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
               </Text>
-              <View style={[styles.geofenceChip, { backgroundColor: theme.primarySoft }]}>
-                <Icon name="location" size={12} color={theme.primary} />
-                <Text style={[styles.geofenceText, { color: theme.primary }]}>
-                  🏢 Branch: {branchName} • Range: {branchRadius}m
+              <View style={[styles.geofenceChip, { backgroundColor: currentUser?.geofencingEnabled === false ? theme.accentSoft : theme.tealSoft }]}>
+                <Icon name="location" size={12} color={currentUser?.geofencingEnabled === false ? theme.accent : theme.primary} />
+                <Text style={[styles.geofenceText, { color: currentUser?.geofencingEnabled === false ? theme.accent : theme.primary }]}>
+                  {currentUser?.geofencingEnabled === false
+                    ? '⚡ Facial Verification Only (Geofence Exempted)'
+                    : `🏢 Branch: ${branchName} • Range: ${branchRadius}m`}
+                </Text>
+              </View>
+
+              {/* Punctuality / Grace Status Badge */}
+              <View style={[styles.geofenceChip, {
+                marginTop: 6,
+                backgroundColor: !punctualityStatus.isAllowed
+                  ? theme.dangerSoft
+                  : punctualityStatus.isAfternoonSession
+                    ? theme.accentSoft
+                    : theme.tealSoft
+              }]}>
+                <Icon
+                  name="clock"
+                  size={12}
+                  color={!punctualityStatus.isAllowed ? theme.danger : punctualityStatus.isAfternoonSession ? theme.accent : theme.primary}
+                />
+                <Text style={[styles.geofenceText, {
+                  color: !punctualityStatus.isAllowed ? theme.danger : punctualityStatus.isAfternoonSession ? theme.accent : theme.primary,
+                  fontWeight: '700'
+                }]}>
+                  {graceTimeSetting === 'always'
+                    ? `🕒 Shift: ${shiftStartStr} • Flexible Grace (Always)`
+                    : !punctualityStatus.isAllowed
+                      ? `⚠️ ${punctualityStatus.message}`
+                      : punctualityStatus.isAfternoonSession
+                        ? `🌓 Afternoon Half-Day Login Active (Morning Absent)`
+                        : `⏰ Shift: ${shiftStartStr} • Grace: ${graceTimeSetting}m (${punctualityStatus.message})`}
                 </Text>
               </View>
             </View>
+
+            {/* Attendance Locked Warning Banner if grace period exceeded */}
+            {!punctualityStatus.isAllowed && (
+              <View style={{
+                backgroundColor: theme.dangerSoft,
+                borderColor: theme.danger,
+                borderWidth: 1,
+                borderRadius: 14,
+                padding: 12,
+                marginBottom: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 10,
+              }}>
+                <Icon name="clock" size={20} color={theme.danger} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.danger, fontWeight: '800', fontSize: 13 }}>
+                    Morning Attendance Locked (Marked Absent)
+                  </Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, lineHeight: 15 }}>
+                    {punctualityStatus.message}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Afternoon Half Day Notice */}
+            {punctualityStatus.isAfternoonSession && !isClockedIn && (
+              <View style={{
+                backgroundColor: theme.accentSoft,
+                borderColor: theme.accent,
+                borderWidth: 1,
+                borderRadius: 14,
+                padding: 12,
+                marginBottom: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 10,
+              }}>
+                <Icon name="clock" size={20} color={theme.accent} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.accent, fontWeight: '800', fontSize: 13 }}>
+                    Afternoon Session Active (Half-Day)
+                  </Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, lineHeight: 15 }}>
+                    Morning grace period was missed. You are now logging in for the afternoon second half.
+                  </Text>
+                </View>
+              </View>
+            )}
 
             {/* Scanner Action Card */}
             <View style={[styles.scannerCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
@@ -343,13 +576,34 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
               </View>
 
               <TouchableOpacity
-                style={[styles.actionBtn, { backgroundColor: isClockedIn ? theme.danger : theme.primary }]}
+                style={[
+                  styles.actionBtn,
+                  {
+                    backgroundColor: !punctualityStatus.isAllowed
+                      ? '#64748b'
+                      : isClockedIn
+                        ? theme.danger
+                        : punctualityStatus.isAfternoonSession
+                          ? theme.accent
+                          : theme.primary,
+                    opacity: !punctualityStatus.isAllowed ? 0.7 : 1,
+                  }
+                ]}
                 onPress={openBiometricScanner}
+                disabled={!punctualityStatus.isAllowed}
                 activeOpacity={0.8}
               >
-                <Icon name="camera" size={18} color="#ffffff" />
+                <Icon name={!punctualityStatus.isAllowed ? 'clock' : 'camera'} size={18} color="#ffffff" />
                 <Text style={styles.actionBtnText}>
-                  {isClockedIn ? 'Verify Face & Punch Clock Out' : 'Verify Face & Punch Clock In'}
+                  {!punctualityStatus.isAllowed
+                    ? punctualityStatus.unlocksAt
+                      ? `🚫 Check-In Disabled (Opens at ${punctualityStatus.unlocksAt})`
+                      : '🚫 Check-In Locked for Today (Absent)'
+                    : isClockedIn
+                      ? 'Verify Face & Punch Clock Out'
+                      : punctualityStatus.isAfternoonSession
+                        ? 'Verify Face & Punch Afternoon Check-In'
+                        : 'Verify Face & Punch Clock In'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -423,7 +677,9 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                     <View style={styles.locRow}>
                       <Text style={[styles.locLabel, { color: theme.textMuted }]}>🛡️ Allowed Geofence Radius:</Text>
                       <Text style={[styles.locValue, { color: theme.textPrimary }]}>
-                        {branchRadius}m {assignedBranch?.geofenceDisabled ? '(Geofence Disabled)' : ''}
+                        {currentUser?.geofencingEnabled === false
+                          ? 'Bypassed (Facial Attendance Only)'
+                          : `${branchRadius}m ${assignedBranch?.geofenceDisabled ? '(Geofence Disabled)' : ''}`}
                       </Text>
                     </View>
                   </View>
@@ -539,15 +795,15 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
             <View style={[styles.otReportCard, { backgroundColor: theme.tealSoft, borderColor: theme.primaryLight }]}>
               <View style={styles.otRow}>
                 <Text style={[styles.otLabel, { color: theme.textMuted }]}>Standard Working Hours</Text>
-                <Text style={[styles.otVal, { color: theme.textPrimary }]}>144.0 Hours</Text>
+                <Text style={[styles.otVal, { color: theme.textPrimary }]}>{standardWorkingHours.toFixed(1)} Hours</Text>
               </View>
               <View style={styles.otRow}>
                 <Text style={[styles.otLabel, { color: theme.textMuted }]}>Overtime Hours Logged</Text>
-                <Text style={[styles.otVal, { color: theme.accent }]}>+14.5 Hours</Text>
+                <Text style={[styles.otVal, { color: theme.accent }]}>+{totalOtHours.toFixed(1)} Hours</Text>
               </View>
               <View style={styles.otRow}>
                 <Text style={[styles.otLabel, { color: theme.textMuted }]}>Overtime Hourly Rate (1.5x)</Text>
-                <Text style={[styles.otVal, { color: theme.textPrimary }]}>₹375.00 / hr</Text>
+                <Text style={[styles.otVal, { color: theme.textPrimary }]}>₹{hourlyRate.toFixed(2)} / hr</Text>
               </View>
 
               <View style={[styles.otDivider, { backgroundColor: theme.cardBorder }]} />
@@ -555,9 +811,13 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
               <View style={styles.otTotalRow}>
                 <View>
                   <Text style={[styles.otTotalLabel, { color: theme.textPrimary }]}>Total Overtime Bonus Pay</Text>
-                  <Text style={[styles.otTotalSub, { color: theme.textMuted }]}>Calculated for August 2026</Text>
+                  <Text style={[styles.otTotalSub, { color: theme.textMuted }]}>
+                    Calculated for {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </Text>
                 </View>
-                <Text style={[styles.otTotalVal, { color: theme.primary }]}>+ ₹5,437.50</Text>
+                <Text style={[styles.otTotalVal, { color: theme.primary }]}>
+                  + ₹{otTotalBonusPay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
               </View>
             </View>
           </View>
@@ -1079,17 +1339,17 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
-  legendItem: {
+  mapLegendItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  legendDot: {
+  mapLegendDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
   },
-  legendText: {
+  mapLegendText: {
     color: '#ffffff',
     fontSize: 10,
     fontWeight: '700',

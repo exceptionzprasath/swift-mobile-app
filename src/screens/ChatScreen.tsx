@@ -9,16 +9,20 @@ import {
 } from 'react-native';
 import { ThemeColors } from '../theme/colors';
 import { Icon } from '../components/Icon';
+import { useAppContext } from '../context/AppContext';
 
 interface ChatScreenProps {
   theme: ThemeColors;
 }
 
 export function ChatScreen({ theme }: ChatScreenProps) {
+  const { currentUser, leaves, holidays, companyConfig } = useAppContext();
   const [activeChannel, setActiveChannel] = useState<'team' | 'ai'>('ai');
   const [inputText, setInputText] = useState('');
+  const userName = currentUser?.name?.split(' ')[0] || 'Employee';
+
   const [messages, setMessages] = useState([
-    { id: 1, sender: 'bot', text: 'Hello Alex! I am SWIFT AI Assistant. How can I help you with your HR, leave, or payroll questions today?', time: '10:00 AM' },
+    { id: 1, sender: 'bot', text: `Hello ${userName}! I am SWIFT AI Assistant 🤖. How can I help you with your HR, leave, or payroll questions today?`, time: '10:00 AM' },
   ]);
 
   const handleSend = () => {
@@ -30,12 +34,31 @@ export function ChatScreen({ theme }: ChatScreenProps) {
 
     setTimeout(() => {
       let botReply = "I've logged your query with HR. You can also check the Documents section for full company policies!";
+      
       if (textToReply.includes('leave')) {
-        botReply = 'You have 6 Casual Leaves (CL) and 5 Sick Leaves (SL) remaining for this year. You can apply directly in the Leaves tab!';
+        const approvedLeaves = (leaves || []).filter(
+          (l: any) => (l.employeeId === currentUser?.id || l.employeeName === currentUser?.name) && l.status === 'Approved'
+        );
+        const usedCL = approvedLeaves.filter((l: any) => l.type.toLowerCase().includes('casual')).reduce((s: number, l: any) => s + (parseFloat(l.days) || 1), 0);
+        const usedSL = approvedLeaves.filter((l: any) => l.type.toLowerCase().includes('sick')).reduce((s: number, l: any) => s + (parseFloat(l.days) || 1), 0);
+        const totalCL = companyConfig?.leaveQuota?.casual || 12;
+        const totalSL = companyConfig?.leaveQuota?.sick || 8;
+        const remCL = Math.max(0, totalCL - usedCL);
+        const remSL = Math.max(0, totalSL - usedSL);
+
+        botReply = `Hello ${userName}! You have ${remCL} Casual Leaves (CL) and ${remSL} Sick Leaves (SL) remaining for this year. You can apply directly in the Leaves tab!`;
       } else if (textToReply.includes('payroll') || textToReply.includes('salary')) {
-        botReply = 'Your July 2026 salary of ₹84,500.00 was credited to HDFC Bank on Aug 01. You can download the PDF payslip from the Payroll tab!';
+        const basic = currentUser?.fixedSalary || currentUser?.basic || 45000;
+        const bank = currentUser?.bankAccount || (currentUser?.bankAcc ? `A/C ${currentUser.bankAcc}` : 'your registered bank account');
+        botReply = `Your basic salary is ₹${basic.toLocaleString('en-IN')}. Salary is credited to ${bank} on the 1st of every month. You can view full details in the Payroll tab!`;
       } else if (textToReply.includes('holiday')) {
-        botReply = 'The next company holiday is Independence Day on Friday, August 15, 2026!';
+        const todayStr = new Date().toISOString().split('T')[0];
+        const nextHol = (holidays || []).find((h: any) => h.date >= todayStr);
+        if (nextHol) {
+          botReply = `The next official company holiday is ${nextHol.name} on ${nextHol.date} (${nextHol.description || nextHol.type || 'Public Holiday'})!`;
+        } else {
+          botReply = `All annual holidays have been completed for this calendar year!`;
+        }
       }
 
       const replyMsg = { id: Date.now() + 1, sender: 'bot', text: botReply, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };

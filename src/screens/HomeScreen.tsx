@@ -21,7 +21,7 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
-  const { currentUser, attendance, isClockedIn, companyConfig, todayRecord, refreshData } = useAppContext();
+  const { currentUser, attendance, leaves, holidays, isClockedIn, companyConfig, todayRecord, refreshData } = useAppContext();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -30,11 +30,32 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
     setRefreshing(false);
   }, [refreshData]);
 
-  const presentCount = attendance.filter((a) => a.status === 'present').length || 3;
+  // Dynamic real-time monthly KPIs calculated from AppContext
+  const currentMonthStr = new Date().toISOString().slice(0, 7);
+  const userAttendance = attendance.filter(
+    (a) => a.employeeId === currentUser?.id || a.employeeName === currentUser?.name
+  );
+  const monthlyAttendance = userAttendance.filter(
+    (a) => a.date && a.date.startsWith(currentMonthStr)
+  );
+
+  const presentCount = monthlyAttendance.filter((a) => a.status === 'present').length;
+  const lateCount = monthlyAttendance.filter((a) => a.status === 'late').length;
+  const otHoursCount = monthlyAttendance.reduce((sum, a) => sum + (Number(a.otHours) || 0), 0);
+
+  const userLeaves = leaves.filter(
+    (l) => (l.employeeId === currentUser?.id || l.employeeName === currentUser?.name) && l.status === 'Approved'
+  );
+  const leavesTakenCount = userLeaves.reduce((sum, l) => sum + (parseFloat(l.days) || 1), 0);
+
+  const onTimeScore = presentCount > 0 ? Math.max(0, Math.round(((presentCount - lateCount) / presentCount) * 100)) : 100;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const upcomingHoliday = (holidays || []).find((h: any) => h.date >= todayStr) || (holidays && holidays[0]);
 
   const branches = companyConfig?.branches || [];
-  const branchName = branches.find((b: any) => b.id === currentUser?.branchId)?.name || currentUser?.branch || 'Branch 2 Erode';
-  const userName = currentUser?.name?.split(' ')[0] || 'YUJI';
+  const branchName = branches.find((b: any) => b.id === currentUser?.branchId)?.name || currentUser?.branch || 'Head Office';
+  const userName = currentUser?.name?.split(' ')[0] || 'Employee';
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -135,7 +156,7 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
                 <Icon name="clock" size={14} color={theme.warning} />
               </View>
               <View style={{ marginTop: 6 }}>
-                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>2.5 Hrs</Text>
+                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>{otHoursCount} Hrs</Text>
                 <Text style={[styles.statLabel, { color: theme.textMuted }]}>Overtime</Text>
               </View>
             </View>
@@ -154,7 +175,7 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
                 <Icon name="leaves" size={14} color={theme.cyan} />
               </View>
               <View style={{ marginTop: 6 }}>
-                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>2 Days</Text>
+                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>{leavesTakenCount} Days</Text>
                 <Text style={[styles.statLabel, { color: theme.textMuted }]}>Leaves Taken</Text>
               </View>
             </View>
@@ -173,7 +194,7 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
                 <Icon name="sparkles" size={14} color="#a855f7" />
               </View>
               <View style={{ marginTop: 6 }}>
-                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>100%</Text>
+                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>{onTimeScore}%</Text>
                 <Text style={[styles.statLabel, { color: theme.textMuted }]}>On-Time Score</Text>
               </View>
             </View>
@@ -216,8 +237,12 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
             <Icon name="holiday" size={20} color={theme.accent} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.holidayTitle, { color: theme.textPrimary }]}>Next Holiday: Independence Day</Text>
-            <Text style={[styles.holidayDate, { color: theme.textMuted }]}>Friday, 15 Aug • Paid Public Holiday</Text>
+            <Text style={[styles.holidayTitle, { color: theme.textPrimary }]}>
+              Next Holiday: {upcomingHoliday ? upcomingHoliday.name : 'None Scheduled'}
+            </Text>
+            <Text style={[styles.holidayDate, { color: theme.textMuted }]}>
+              {upcomingHoliday ? `${upcomingHoliday.date} • ${upcomingHoliday.description || upcomingHoliday.type || 'Public Holiday'}` : 'No upcoming holiday'}
+            </Text>
           </View>
           <TouchableOpacity style={[styles.viewHolidayBtn, { backgroundColor: theme.cyan }]} onPress={() => onNavigate('holidays')} activeOpacity={0.85}>
             <Text style={styles.viewHolidayText}>View All</Text>

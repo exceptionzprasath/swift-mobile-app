@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,59 +7,112 @@ import {
 } from 'react-native';
 import { ThemeColors } from '../theme/colors';
 import { Icon } from '../components/Icon';
+import { useAppContext } from '../context/AppContext';
 
 interface HolidaysScreenProps {
   theme: ThemeColors;
 }
 
+const DEFAULT_HOLIDAYS = [
+  { id: 'hol-1', name: 'Republic Day', date: '2026-01-26', type: 'National Holiday', description: 'National Republic Day Celebration', isMandatory: true },
+  { id: 'hol-2', name: 'Holi', date: '2026-03-25', type: 'Festival Holiday', description: 'Festival of Colors', isMandatory: true },
+  { id: 'hol-3', name: 'Good Friday', date: '2026-04-10', type: 'Public Holiday', description: 'Christian Public Holiday', isMandatory: true },
+  { id: 'hol-4', name: 'Tamil New Year / Ambedkar Jayanti', date: '2026-04-14', type: 'Public Holiday', description: 'State & National Holiday', isMandatory: true },
+  { id: 'hol-5', name: 'Labor Day / May Day', date: '2026-05-01', type: 'Public Holiday', description: "International Workers' Day", isMandatory: true },
+  { id: 'hol-6', name: 'Bakrid / Eid al-Adha', date: '2026-06-17', type: 'Festival Holiday', description: 'Islamic Festival of Sacrifice', isMandatory: true },
+  { id: 'hol-7', name: 'Independence Day', date: '2026-08-15', type: 'National Holiday', description: 'National Independence Day celebration', isMandatory: true },
+  { id: 'hol-8', name: 'Ganesh Chaturthi', date: '2026-09-04', type: 'Festival Holiday', description: 'Vinayaka Chaturthi Festival', isMandatory: true },
+  { id: 'hol-9', name: 'Gandhi Jayanti', date: '2026-10-02', type: 'National Holiday', description: "Mahatma Gandhi's Birthday", isMandatory: true },
+  { id: 'hol-10', name: 'Ayudha Pooja / Vijaya Dashami', date: '2026-10-20', type: 'Festival Holiday', description: 'Dussehra Celebrations', isMandatory: true },
+  { id: 'hol-11', name: 'Diwali (Deepavali)', date: '2026-11-01', type: 'Festival Holiday', description: 'Festival of Lights', isMandatory: true },
+  { id: 'hol-12', name: 'Christmas Day', date: '2026-12-25', type: 'Festival Holiday', description: 'Christmas Day Celebration', isMandatory: true },
+  { id: 'hol-13', name: 'New Year Day', date: '2027-01-01', type: 'Optional Holiday', description: 'New Year Day (Floating / Optional Holiday)', isMandatory: false },
+  { id: 'hol-14', name: 'Pongal / Makar Sankranti', date: '2027-01-14', type: 'Festival Holiday', description: 'Traditional Harvest Festival', isMandatory: true },
+];
+
 export function HolidaysScreen({ theme }: HolidaysScreenProps) {
-  const holidays = [
-    { date: 'Aug 15, 2026', day: 'Friday', name: 'Independence Day', type: 'Mandatory', desc: 'National Public Holiday' },
-    { date: 'Oct 02, 2026', day: 'Friday', name: 'Gandhi Jayanti', type: 'Mandatory', desc: 'National Public Holiday' },
-    { date: 'Nov 01, 2026', day: 'Sunday', name: 'Diwali (Deepavali)', type: 'Mandatory', desc: 'Festival of Lights' },
-    { date: 'Dec 25, 2026', day: 'Friday', name: 'Christmas Day', type: 'Mandatory', desc: 'Christian Holiday' },
-    { date: 'Jan 01, 2027', day: 'Friday', name: 'New Year Day', type: 'Optional', desc: 'Optional Floating Holiday' },
-    { date: 'Jan 14, 2027', day: 'Thursday', name: 'Makar Sankranti / Pongal', type: 'Mandatory', desc: 'Harvest Festival' },
-    { date: 'Jan 26, 2027', day: 'Tuesday', name: 'Republic Day', type: 'Mandatory', desc: 'National Public Holiday' },
-  ];
+  const { holidays: apiHolidays, companyConfig } = useAppContext();
+
+  const allHolidays = useMemo(() => {
+    const list = apiHolidays && Array.isArray(apiHolidays) && apiHolidays.length > 0 ? apiHolidays : DEFAULT_HOLIDAYS;
+    return list.slice().sort((a: any, b: any) => (a.date || '').localeCompare(b.date || ''));
+  }, [apiHolidays]);
+
+  // Find next upcoming holiday
+  const todayStr = new Date().toISOString().split('T')[0];
+  const upcoming = useMemo(() => {
+    return allHolidays.find((h: any) => h.date >= todayStr) || allHolidays[0];
+  }, [allHolidays, todayStr]);
+
+  const daysRemaining = useMemo(() => {
+    if (!upcoming) return 0;
+    const d1 = new Date(todayStr);
+    const d2 = new Date(upcoming.date);
+    return Math.max(0, Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)));
+  }, [upcoming, todayStr]);
+
+  const formatDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
+    } catch {
+      return dateStr;
+    }
+  };
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
-      <Text style={[styles.screenTitle, { color: theme.textPrimary }]}>Company Holidays 2026-2027</Text>
+      <Text style={[styles.screenTitle, { color: theme.textPrimary }]}>
+        {companyConfig?.companyName || 'Company'} Holidays Calendar
+      </Text>
 
       {/* Featured Banner */}
-      <View style={[styles.heroCard, { backgroundColor: theme.tealSoft, borderColor: theme.primaryLight }]}>
-        <Text style={[styles.heroBadge, { color: theme.primary }]}>UPCOMING HOLIDAY</Text>
-        <Text style={[styles.heroTitle, { color: theme.textPrimary }]}>Independence Day</Text>
-        <Text style={[styles.heroDate, { color: theme.primary }]}>Friday, 15 August 2026</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
-          <Icon name="clock" size={14} color={theme.success} />
-          <Text style={[styles.heroCount, { color: theme.success }]}>17 Days Remaining</Text>
+      {upcoming && (
+        <View style={[styles.heroCard, { backgroundColor: theme.tealSoft, borderColor: theme.primaryLight }]}>
+          <Text style={[styles.heroBadge, { color: theme.primary }]}>NEXT UPCOMING HOLIDAY</Text>
+          <Text style={[styles.heroTitle, { color: theme.textPrimary }]}>{upcoming.name}</Text>
+          <Text style={[styles.heroDate, { color: theme.primary }]}>{formatDate(upcoming.date)}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <Icon name="clock" size={14} color={theme.success} />
+            <Text style={[styles.heroCount, { color: theme.success }]}>
+              {daysRemaining === 0 ? 'Today!' : `${daysRemaining} Days Remaining`}
+            </Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Holiday List */}
-      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Official Holiday Calendar</Text>
-      {holidays.map((h, idx) => (
-        <View key={idx} style={[styles.holidayCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-          <View style={[styles.iconBg, { backgroundColor: theme.tealSoft }]}>
-            <Icon name="holiday" size={20} color={theme.primary} />
-          </View>
+      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
+        Official Annual Holidays ({allHolidays.length})
+      </Text>
 
-          <View style={{ flex: 1 }}>
-            <View style={styles.topRow}>
-              <Text style={[styles.holidayName, { color: theme.textPrimary }]}>{h.name}</Text>
-              <View style={[styles.typeTag, { backgroundColor: h.type === 'Mandatory' ? theme.successSoft : theme.accentSoft }]}>
-                <Text style={[styles.typeText, { color: h.type === 'Mandatory' ? theme.success : theme.accent }]}>
-                  {h.type}
-                </Text>
-              </View>
+      {allHolidays.map((h: any, idx: number) => {
+        const isMandatory = h.isMandatory !== false;
+        return (
+          <View key={h.id || idx} style={[styles.holidayCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+            <View style={[styles.iconBg, { backgroundColor: theme.tealSoft }]}>
+              <Icon name="holiday" size={20} color={theme.primary} />
             </View>
-            <Text style={[styles.holidayDate, { color: theme.cyan }]}>📅 {h.date} ({h.day})</Text>
-            <Text style={[styles.holidayDesc, { color: theme.textMuted }]}>{h.desc}</Text>
+
+            <View style={{ flex: 1 }}>
+              <View style={styles.topRow}>
+                <Text style={[styles.holidayName, { color: theme.textPrimary }]}>{h.name}</Text>
+                <View style={[styles.typeTag, { backgroundColor: isMandatory ? theme.successSoft : theme.accentSoft }]}>
+                  <Text style={[styles.typeText, { color: isMandatory ? theme.success : theme.accent }]}>
+                    {isMandatory ? 'Mandatory' : 'Optional'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.holidayDate, { color: theme.cyan }]}>
+                📅 {formatDate(h.date)}
+              </Text>
+              <Text style={[styles.holidayDesc, { color: theme.textMuted }]}>
+                {h.description || h.desc || h.type || 'Official Company Holiday'}
+              </Text>
+            </View>
           </View>
-        </View>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }
@@ -99,11 +152,11 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   heroCount: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
     marginBottom: 12,
   },
@@ -119,7 +172,7 @@ const styles = StyleSheet.create({
   iconBg: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -127,16 +180,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   holidayName: {
     fontSize: 15,
     fontWeight: '800',
+    flex: 1,
   },
   typeTag: {
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   typeText: {
     fontSize: 10,
@@ -145,9 +199,10 @@ const styles = StyleSheet.create({
   holidayDate: {
     fontSize: 12,
     fontWeight: '700',
-    marginVertical: 2,
+    marginBottom: 2,
   },
   holidayDesc: {
-    fontSize: 11,
+    fontSize: 12,
+    lineHeight: 16,
   },
 });

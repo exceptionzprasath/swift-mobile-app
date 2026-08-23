@@ -29,7 +29,15 @@ export type IconName =
   | 'sparkles'
   | 'shield'
   | 'calendar'
-  | 'filter';
+  | 'filter'
+  | 'menu'
+  | 'loan'
+  | 'wallet'
+  | 'history'
+  | 'help'
+  | 'logout'
+  | 'coffee'
+  | 'alert-circle';
 
 interface IconProps {
   name: IconName;
@@ -239,6 +247,53 @@ export function Icon({ name, size = 20, color = '#0f766e' }: IconProps) {
     case 'send':
       return (
         <Text style={{ color, fontSize: size * 0.8, fontWeight: '900' }}>➔</Text>
+      );
+
+    case 'menu':
+      return (
+        <View style={{ width: size, height: size, justifyContent: 'space-around', paddingVertical: 2 }}>
+          <View style={{ width: size, height: 2.2, backgroundColor: color, borderRadius: 1.5 }} />
+          <View style={{ width: size * 0.75, height: 2.2, backgroundColor: color, borderRadius: 1.5 }} />
+          <View style={{ width: size, height: 2.2, backgroundColor: color, borderRadius: 1.5 }} />
+        </View>
+      );
+
+    case 'loan':
+    case 'wallet':
+      return (
+        <View style={{ width: size * 1.1, height: size * 0.8, borderRadius: 4, borderWidth: 1.8, borderColor: color, justifyContent: 'center', paddingHorizontal: 2 }}>
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color, alignSelf: 'flex-end', marginRight: 2 }} />
+        </View>
+      );
+
+    case 'history':
+      return (
+        <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 1.8, borderColor: color, justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: 1.8, height: size * 0.35, backgroundColor: color, position: 'absolute', top: size * 0.2 }} />
+          <View style={{ width: size * 0.28, height: 1.8, backgroundColor: color, position: 'absolute', right: size * 0.25 }} />
+        </View>
+      );
+
+    case 'help':
+    case 'alert-circle':
+      return (
+        <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 1.8, borderColor: color, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color, fontSize: size * 0.7, fontWeight: '900', marginTop: -2 }}>!</Text>
+        </View>
+      );
+
+    case 'coffee':
+      return (
+        <View style={{ width: size, height: size * 0.8, borderBottomLeftRadius: 6, borderBottomRightRadius: 6, borderWidth: 1.8, borderColor: color, marginTop: size * 0.1 }}>
+          <View style={{ width: 4, height: 6, borderTopRightRadius: 3, borderBottomRightRadius: 3, borderWidth: 1.5, borderColor: color, position: 'absolute', right: -6, top: 1 }} />
+        </View>
+      );
+
+    case 'logout':
+      return (
+        <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color, fontSize: size * 0.85, fontWeight: '800' }}>⎋</Text>
+        </View>
       );
 
     default:
