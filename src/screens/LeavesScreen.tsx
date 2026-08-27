@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { ThemeColors } from '../theme/colors';
 import { Icon } from '../components/Icon';
-import { useAppContext } from '../context/AppContext';
+import { useAppContext, LeaveRequest } from '../context/AppContext';
 
 interface LeavesScreenProps {
   theme: ThemeColors;
@@ -32,7 +32,7 @@ interface TimeState {
 }
 
 export function LeavesScreen({ theme }: LeavesScreenProps) {
-  const { leaves, applyLeave, refreshData, currentUser, companyConfig } = useAppContext();
+  const { leaves, applyLeave, actOnLeave, canApproveLeaves, refreshData, currentUser, companyConfig } = useAppContext();
 
   const [requestType, setRequestType] = useState<'leave' | 'permission'>('leave');
   const [leaveCategory, setLeaveCategory] = useState<'Casual' | 'Sick' | 'Earned'>('Casual');
@@ -63,6 +63,13 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
   const [clockTarget, setClockTarget] = useState<'start' | 'end'>('start');
   const [tempTime, setTempTime] = useState<TimeState>({ hour: 4, minute: 0, period: 'PM' });
 
+  // Manager Action Notes Modal State
+  const [actionModalVisible, setActionModalVisible] = useState(false);
+  const [actionTargetLeave, setActionTargetLeave] = useState<LeaveRequest | null>(null);
+  const [actionType, setActionType] = useState<'approve_forward' | 'approve_close' | 'reject' | 'escalate'>('approve_forward');
+  const [actionNotes, setActionNotes] = useState('');
+  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+
   const isLeaveEligible = currentUser?.leaveApplyEligible !== false;
 
   // Real-time dynamic leave balance calculations
@@ -82,19 +89,53 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
     .filter((l) => l.type.toLowerCase().includes('earned'))
     .reduce((sum, l) => sum + (parseFloat(l.days) || 1), 0);
 
-  const usedPermission = userApprovedLeaves
-    .filter((l) => l.type.toLowerCase().includes('permission'))
-    .reduce((sum, l) => sum + (parseFloat(l.days) || 1), 0);
+  const totalCasual = companyConfig?.leaveQuota?.casual || (companyConfig as any)?.leaveTypes?.find((l: any) => l.name?.toLowerCase().includes('casual'))?.days || 12;
+  const totalSick = companyConfig?.leaveQuota?.sick || (companyConfig as any)?.leaveTypes?.find((l: any) => l.name?.toLowerCase().includes('sick'))?.days || 8;
+  const totalEarned = companyConfig?.leaveQuota?.earned || (companyConfig as any)?.leaveTypes?.find((l: any) => l.name?.toLowerCase().includes('earned'))?.days || 15;
+  
+  // Permission quota: read from separate permissionTypes first, fallback to configured leaveType or legacy permissionQuota
+  const activePermissionType = (companyConfig as any)?.permissionTypes?.[0] ||
+    (companyConfig as any)?.permissionTypes?.find((p: any) => p.name?.toLowerCase().includes('permission'));
+  const permissionLeaveType = (companyConfig as any)?.leaveTypes?.find((l: any) =>
+    l.name?.toLowerCase().includes('permission') || l.name?.toLowerCase().includes('short')
+  );
+  // Determine period window for permission balance
+  const permPeriod: 'month' | 'year' = activePermissionType?.period || permissionLeaveType?.permissionPeriod || 'month';
+  const totalPermission = activePermissionType?.maxHours ?? permissionLeaveType?.permissionHours ?? companyConfig?.permissionQuota ?? 2;
 
-  const totalCasual = companyConfig?.leaveQuota?.casual || 12;
-  const totalSick = companyConfig?.leaveQuota?.sick || 8;
-  const totalEarned = companyConfig?.leaveQuota?.earned || 15;
-  const totalPermission = companyConfig?.permissionQuota || 2;
+  // Filter permission used leaves scoped to correct period
+  const permPeriodLeaves = userApprovedLeaves.filter((l) => {
+    if (!l.type.toLowerCase().includes('permission')) return false;
+    const refDate = l.startDate || l.endDate;
+    if (!refDate) return true;
+    const d = new Date(refDate);
+    const now = new Date();
+    if (permPeriod === 'year') return d.getFullYear() === now.getFullYear();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  });
+  const usedPermission = permPeriodLeaves.reduce((sum, l) => sum + (parseFloat(l.days) || 1), 0);
 
   const casualBal = Math.max(0, totalCasual - usedCasual);
   const sickBal = Math.max(0, totalSick - usedSick);
   const earnedBal = Math.max(0, totalEarned - usedEarned);
   const permBal = Math.max(0, totalPermission - usedPermission);
+
+  // Determine remaining balance for the currently selected leave type/category
+  const currentLeaveBalance = (() => {
+    if (requestType === 'permission') return permBal;
+    if (leaveCategory === 'Casual') return casualBal;
+    if (leaveCategory === 'Sick') return sickBal;
+    if (leaveCategory === 'Earned') return earnedBal;
+    return 0;
+  })();
+  const currentLeaveTotal = (() => {
+    if (requestType === 'permission') return totalPermission;
+    if (leaveCategory === 'Casual') return totalCasual;
+    if (leaveCategory === 'Sick') return totalSick;
+    if (leaveCategory === 'Earned') return totalEarned;
+    return 0;
+  })();
+  const isBalanceExhausted = currentLeaveBalance <= 0;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -126,6 +167,13 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
     return diffDays;
   }, [leaveDurationType, startDate, endDate]);
+
+  // For multi-day requests, also check if days requested exceeds balance
+  const requestedUnits = requestType === 'permission'
+    ? parseFloat(permissionSlotDuration)
+    : calculatedDaysCount || 1;
+  const wouldExceedBalance = requestedUnits > currentLeaveBalance;
+  const isSubmitDisabled = !isLeaveEligible || isBalanceExhausted || wouldExceedBalance;
 
   // Open Calendar Picker Modal
   const openCalendar = (target: 'start' | 'end' | 'permission') => {
@@ -220,6 +268,27 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
       return;
     }
 
+    // Balance check before submitting
+    if (isBalanceExhausted) {
+      const unitLabel = requestType === 'permission' ? 'hours' : 'days';
+      const typeName = requestType === 'permission' ? 'Permission' : `${leaveCategory} Leave`;
+      Alert.alert(
+        'Insufficient Leave Balance',
+        `You have no remaining ${typeName} balance (${currentLeaveBalance} ${unitLabel} left out of ${currentLeaveTotal} ${unitLabel}).`
+      );
+      return;
+    }
+
+    if (wouldExceedBalance) {
+      const unitLabel = requestType === 'permission' ? 'hours' : 'days';
+      const typeName = requestType === 'permission' ? 'Permission' : `${leaveCategory} Leave`;
+      Alert.alert(
+        'Insufficient Leave Balance',
+        `You requested ${requestedUnits} ${unitLabel} of ${typeName} but only ${currentLeaveBalance} ${unitLabel} remain.`
+      );
+      return;
+    }
+
     if (!reason.trim()) {
       Alert.alert('Required', 'Please enter a valid reason for your request.');
       return;
@@ -290,7 +359,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
         </View>
         <View style={[styles.balanceCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, borderTopColor: theme.accent }]}>
           <Text style={[styles.balanceNumber, { color: theme.textPrimary }]}>{permBal} Hrs</Text>
-          <Text style={[styles.balanceLabel, { color: theme.textMuted }]}>Monthly Permission</Text>
+          <Text style={[styles.balanceLabel, { color: theme.textMuted }]}>{permPeriod === 'year' ? 'Yearly' : 'Monthly'} Permission</Text>
         </View>
       </View>
 
@@ -558,33 +627,172 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
           style={[
             styles.textInput,
             { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder },
-            !isLeaveEligible && { opacity: 0.6 }
+            (isSubmitDisabled) && { opacity: 0.6 }
           ]}
-          placeholder={isLeaveEligible ? "Enter detailed reason for manager review..." : "Leave applications are currently locked..."}
+          placeholder={
+            !isLeaveEligible
+              ? 'Leave applications are currently locked...'
+              : isBalanceExhausted
+              ? 'No leave balance remaining...'
+              : 'Enter detailed reason for manager review...'
+          }
           placeholderTextColor={theme.textMuted}
           value={reason}
           onChangeText={setReason}
-          editable={isLeaveEligible}
+          editable={isLeaveEligible && !isBalanceExhausted}
           multiline
         />
+
+        {/* Balance warning */}
+        {isLeaveEligible && (isBalanceExhausted || wouldExceedBalance) && (
+          <View style={{ backgroundColor: '#FF000015', borderRadius: 8, padding: 10, marginTop: 6 }}>
+            <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '600' }}>
+              {isBalanceExhausted
+                ? `⚠ No ${requestType === 'permission' ? 'permission hours' : `${leaveCategory} Leave days`} remaining.`
+                : `⚠ Requested ${requestedUnits} ${requestType === 'permission' ? 'hrs' : 'days'} exceeds remaining balance of ${currentLeaveBalance} ${requestType === 'permission' ? 'hrs' : 'days'}.`}
+            </Text>
+          </View>
+        )}
 
         <TouchableOpacity
           style={[
             styles.submitBtn,
-            { backgroundColor: isLeaveEligible ? theme.primary : theme.cardBorder },
-            !isLeaveEligible && { opacity: 0.7 }
+            { backgroundColor: isSubmitDisabled ? theme.cardBorder : theme.primary },
+            isSubmitDisabled && { opacity: 0.7 }
           ]}
           onPress={handleSubmit}
-          activeOpacity={isLeaveEligible ? 0.8 : 1}
+          activeOpacity={isSubmitDisabled ? 1 : 0.8}
         >
-          <Text style={[styles.submitBtnText, !isLeaveEligible && { color: theme.textMuted }]}>
-            {isLeaveEligible ? 'Submit Application →' : '🔒 Leave Application Locked by HR'}
+          <Text style={[styles.submitBtnText, isSubmitDisabled && { color: theme.textMuted }]}>
+            {!isLeaveEligible
+              ? '🔒 Leave Application Locked by HR'
+              : isBalanceExhausted
+              ? '🚫 Leave Balance Exhausted'
+              : wouldExceedBalance
+              ? `🚫 Exceeds Balance (${currentLeaveBalance} left)`
+              : 'Submit Application →'}
           </Text>
         </TouchableOpacity>
       </View>
 
+      {/* Approval Inbox for Managers / HR */}
+      {canApproveLeaves && leaves.filter((l) => l.status === 'Pending' && l.employeeId !== currentUser?.id).length > 0 && (
+        <View style={{ marginBottom: 20 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginBottom: 0 }]}>
+              Pending Approvals ({leaves.filter((l) => l.status === 'Pending' && l.employeeId !== currentUser?.id).length})
+            </Text>
+            <View style={{ backgroundColor: theme.primary + '20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: theme.primary }}>Action Required</Text>
+            </View>
+          </View>
+
+          {leaves
+            .filter((l) => l.status === 'Pending' && l.employeeId !== currentUser?.id)
+            .map((item) => {
+              const isSequential = !item.approvalType || item.approvalType === 'sequential';
+
+              return (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.historyItem,
+                    { backgroundColor: theme.card, borderColor: theme.primary + '50', borderWidth: 1.5, marginBottom: 12 },
+                  ]}
+                >
+                  <View style={styles.historyHeader}>
+                    <View>
+                      <Text style={[styles.historyType, { color: theme.textPrimary }]}>{item.employeeName}</Text>
+                      <Text style={{ fontSize: 11, color: theme.textMuted }}>{item.type} · {item.days}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                      <View style={[styles.statusBadge, { backgroundColor: theme.warning + '25' }]}>
+                        <Text style={[styles.statusText, { color: theme.warning }]}>
+                          Level {item.currentLevel || 1}/{item.totalLevels || 3}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 9, color: theme.textMuted, textTransform: 'capitalize' }}>
+                        {isSequential ? 'Sequential Order' : item.approvalType === 'all' ? 'All Must Approve' : 'Any One Can Approve'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={[styles.historyDates, { color: theme.accent, marginTop: 4 }]}>📅 {item.startDate} to {item.endDate || item.startDate}</Text>
+                  <Text style={[styles.historyReason, { color: theme.textMuted, marginTop: 2 }]}>Reason: {item.reason}</Text>
+
+                  {/* Multi-Action Buttons (Sequential has 3 vs Non-Sequential has 2) */}
+                  <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.cardBorder, gap: 6 }}>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      {isSequential && (
+                        <TouchableOpacity
+                          style={{
+                            flex: 1,
+                            backgroundColor: theme.primary,
+                            paddingVertical: 9,
+                            borderRadius: 10,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onPress={() => {
+                            setActionTargetLeave(item);
+                            setActionType('approve_forward');
+                            setActionNotes('');
+                            setActionModalVisible(true);
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>🚀 Approve & Forward</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      <TouchableOpacity
+                        style={{
+                          flex: 1,
+                          backgroundColor: theme.success,
+                          paddingVertical: 9,
+                          borderRadius: 10,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onPress={() => {
+                          setActionTargetLeave(item);
+                          setActionType('approve_close');
+                          setActionNotes('');
+                          setActionModalVisible(true);
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>✓ Approve & Close</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={{
+                          flex: isSequential ? 0.9 : 1,
+                          backgroundColor: theme.danger + '15',
+                          borderColor: theme.danger,
+                          borderWidth: 1,
+                          paddingVertical: 9,
+                          borderRadius: 10,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onPress={() => {
+                          setActionTargetLeave(item);
+                          setActionType('reject');
+                          setActionNotes('');
+                          setActionModalVisible(true);
+                        }}
+                      >
+                        <Text style={{ color: theme.danger, fontSize: 11, fontWeight: '700' }}>✕ Reject</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+        </View>
+      )}
+
       {/* History List */}
-      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Request History</Text>
+      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>My Request History</Text>
       {leaves.filter((l) => l.employeeId === currentUser?.id || l.employeeName === currentUser?.name).length === 0 ? (
         <View style={[styles.historyItem, { backgroundColor: theme.card, borderColor: theme.cardBorder, alignItems: 'center', paddingVertical: 20 }]}>
           <Text style={[{ color: theme.textMuted, fontSize: 12 }]}>No leave or permission requests submitted yet.</Text>
@@ -594,8 +802,10 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
           .filter((l) => l.employeeId === currentUser?.id || l.employeeName === currentUser?.name)
           .map((item) => {
             const badgeColor = item.status === 'Approved' ? theme.success : item.status === 'Rejected' ? theme.danger : theme.warning;
+            const steps = item.approvalSteps || [];
+
             return (
-              <View key={item.id} style={[styles.historyItem, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+              <View key={item.id} style={[styles.historyItem, { backgroundColor: theme.card, borderColor: theme.cardBorder, marginBottom: 12 }]}>
                 <View style={styles.historyHeader}>
                   <Text style={[styles.historyType, { color: theme.textPrimary }]}>{item.type}</Text>
                   <View style={[styles.statusBadge, { backgroundColor: badgeColor + '25' }]}>
@@ -604,8 +814,58 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
                 </View>
                 <Text style={[styles.historyDates, { color: theme.accent }]}>📅 {item.startDate} ({item.days})</Text>
                 <Text style={[styles.historyReason, { color: theme.textMuted }]}>Reason: {item.reason}</Text>
+
+                {/* Multi-Level Approval Pipeline Stepper */}
+                {steps.length > 0 && (
+                  <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.cardBorder }}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                      Multi-Level Approval Pipeline
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      {steps.map((st, sIdx) => {
+                        const isDone = st.status === 'Approved';
+                        const isReject = st.status === 'Rejected';
+                        const isCurrent = st.level === (item.currentLevel || 1) && item.status === 'Pending';
+                        const stepColor = isDone ? theme.success : isReject ? theme.danger : isCurrent ? theme.warning : theme.textMuted;
+
+                        return (
+                          <React.Fragment key={st.level}>
+                            <View style={{ alignItems: 'center', flex: 1 }}>
+                              <View
+                                style={{
+                                  width: 22,
+                                  height: 22,
+                                  borderRadius: 11,
+                                  backgroundColor: isDone ? theme.success : isReject ? theme.danger : isCurrent ? theme.warning + '30' : theme.cardBorder,
+                                  borderColor: isCurrent ? theme.warning : 'transparent',
+                                  borderWidth: isCurrent ? 1.5 : 0,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: isDone || isReject ? '#fff' : isCurrent ? theme.warning : theme.textMuted }}>
+                                  {isDone ? '✓' : isReject ? '✗' : st.level}
+                                </Text>
+                              </View>
+                              <Text style={{ fontSize: 9, fontWeight: '600', color: stepColor, marginTop: 3, textAlign: 'center' }} numberOfLines={1}>
+                                {st.roleName.split(' ')[0]}
+                              </Text>
+                              <Text style={{ fontSize: 8, color: theme.textMuted, textAlign: 'center' }} numberOfLines={1}>
+                                {st.status}
+                              </Text>
+                            </View>
+                            {sIdx < steps.length - 1 && (
+                              <View style={{ height: 1.5, flex: 0.6, backgroundColor: isDone ? theme.success : theme.cardBorder, marginHorizontal: 2, marginBottom: 12 }} />
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+
                 {item.actedBy ? (
-                  <Text style={[styles.historyReason, { color: badgeColor, marginTop: 4, fontWeight: '600' }]}>
+                  <Text style={[styles.historyReason, { color: badgeColor, marginTop: 6, fontWeight: '600' }]}>
                     {item.status} by {item.actedBy}{item.approverComment ? ` · "${item.approverComment}"` : ''}
                   </Text>
                 ) : null}
@@ -815,6 +1075,182 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
             >
               <Text style={styles.clockConfirmBtnText}>Apply Selected Time ({formatTimeStr(tempTime)}) →</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* =========================================================================
+          MANAGER ACTION NOTES MODAL (Approve & Forward, Approve & Close, Reject)
+          ========================================================================= */}
+      <Modal
+        visible={actionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !isSubmittingAction && setActionModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, maxHeight: '85%' }]}>
+            {/* Modal Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: theme.textPrimary }}>
+                  {actionType === 'approve_forward'
+                    ? '🚀 Approve & Forward'
+                    : actionType === 'approve_close'
+                    ? '✓ Approve & Close'
+                    : actionType === 'escalate'
+                    ? '⚡ Escalate Request'
+                    : '✕ Reject Request'}
+                </Text>
+                <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
+                  {actionType === 'approve_forward'
+                    ? 'Advance request to the next sequential approver'
+                    : actionType === 'approve_close'
+                    ? 'Mark request fully approved and conclude flow'
+                    : actionType === 'escalate'
+                    ? 'Escalate request to higher authority'
+                    : 'Decline this request with feedback remarks'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setActionModalVisible(false)}
+                style={{ padding: 6, borderRadius: 20, backgroundColor: theme.inputBg }}
+              >
+                <Icon name="cross" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Target Request Info Summary Card */}
+            {actionTargetLeave && (
+              <View style={{ backgroundColor: theme.inputBg, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.cardBorder, marginBottom: 14 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textPrimary }}>
+                    {actionTargetLeave.employeeName}
+                  </Text>
+                  <View style={[styles.statusBadge, { backgroundColor: theme.warning + '25' }]}>
+                    <Text style={[styles.statusText, { color: theme.warning, fontSize: 10 }]}>
+                      Level {actionTargetLeave.currentLevel || 1}/{actionTargetLeave.totalLevels || 3}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 3 }}>
+                  {actionTargetLeave.type} ({actionTargetLeave.days} Day{parseFloat(actionTargetLeave.days) > 1 ? 's' : ''})
+                </Text>
+                <Text style={{ fontSize: 11, color: theme.accent, marginTop: 3 }}>
+                  📅 {actionTargetLeave.startDate} {actionTargetLeave.endDate ? `to ${actionTargetLeave.endDate}` : ''}
+                </Text>
+                <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 4, fontStyle: 'italic' }}>
+                  "{actionTargetLeave.reason}"
+                </Text>
+              </View>
+            )}
+
+            {/* Notes / Comments Input */}
+            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textPrimary, marginBottom: 6 }}>
+              Approver Notes & Comments {actionType === 'reject' ? '(Mandatory Remarks)' : '(Optional Notes)'}
+            </Text>
+            <TextInput
+              style={{
+                backgroundColor: theme.inputBg,
+                color: theme.textPrimary,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: theme.cardBorder,
+                padding: 12,
+                fontSize: 12,
+                minHeight: 80,
+                textAlignVertical: 'top',
+                marginBottom: 16,
+              }}
+              placeholder={
+                actionType === 'approve_forward'
+                  ? 'Add notes for the next approver (e.g. Recommended for approval)...'
+                  : actionType === 'approve_close'
+                  ? 'Add closing remarks (e.g. Approved and finalized directly)...'
+                  : actionType === 'escalate'
+                  ? 'Reason for manual escalation...'
+                  : 'Enter specific reason for rejection...'
+              }
+              placeholderTextColor={theme.textMuted}
+              multiline
+              numberOfLines={3}
+              value={actionNotes}
+              onChangeText={setActionNotes}
+            />
+
+            {/* Action Buttons */}
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: theme.inputBg,
+                  borderWidth: 1,
+                  borderColor: theme.cardBorder,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                }}
+                onPress={() => setActionModalVisible(false)}
+                disabled={isSubmittingAction}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textMuted }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flex: 1.5,
+                  backgroundColor:
+                    actionType === 'reject'
+                      ? theme.danger
+                      : actionType === 'approve_close'
+                      ? theme.success
+                      : theme.primary,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                }}
+                disabled={isSubmittingAction}
+                onPress={async () => {
+                  if (!actionTargetLeave) return;
+                  if (actionType === 'reject' && !actionNotes.trim()) {
+                    Alert.alert('Rejection Note Required', 'Please provide a reason or note for rejecting this request.');
+                    return;
+                  }
+                  setIsSubmittingAction(true);
+                  try {
+                    const ok = await actOnLeave(
+                      actionTargetLeave.id,
+                      actionType,
+                      actionNotes.trim() ||
+                        (actionType === 'approve_forward'
+                          ? `Approved & Forwarded by ${currentUser?.name || 'Manager'}`
+                          : actionType === 'approve_close'
+                          ? `Approved & Closed by ${currentUser?.name || 'Manager'}`
+                          : 'Rejected by Manager')
+                    );
+                    if (ok) {
+                      Alert.alert(
+                        actionType === 'reject'
+                          ? 'Request Rejected'
+                          : actionType === 'approve_close'
+                          ? 'Request Fully Approved'
+                          : 'Request Forwarded',
+                        `Successfully processed leave request for ${actionTargetLeave.employeeName}`
+                      );
+                      setActionModalVisible(false);
+                    } else {
+                      Alert.alert('Action Failed', 'Could not process the request. Please try again.');
+                    }
+                  } finally {
+                    setIsSubmittingAction(false);
+                  }
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '800', color: '#ffffff' }}>
+                  {isSubmittingAction ? 'Processing...' : 'Confirm & Submit'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

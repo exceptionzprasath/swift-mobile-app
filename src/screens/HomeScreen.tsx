@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,13 @@ import {
   TouchableOpacity,
   Dimensions,
   RefreshControl,
+  Alert,
+  Modal,
 } from 'react-native';
 import LottieView from 'lottie-react-native';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon, IconName } from '../components/Icon';
+import { FaceRegistrationModal } from '../components/FaceRegistrationModal';
 import { useAppContext } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
@@ -21,8 +24,24 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
-  const { currentUser, attendance, leaves, holidays, isClockedIn, companyConfig, todayRecord, refreshData } = useAppContext();
+  const { currentUser, attendance, leaves, holidays, isClockedIn, companyConfig, todayRecord, roster, refreshData } = useAppContext();
   const [refreshing, setRefreshing] = useState(false);
+  const [faceModalVisible, setFaceModalVisible] = useState(false);
+  const [showAutoPrompt, setShowAutoPrompt] = useState(false);
+  const hasPromptedRef = useRef(false);
+
+  const isFaceEnrolled = Boolean(currentUser?.faceRegistered || (currentUser?.photoDataUrl && currentUser.photoDataUrl.startsWith('http')));
+
+  // Proactively pop up the face registration dialog when entering the home screen if not yet enrolled
+  useEffect(() => {
+    if (currentUser && !isFaceEnrolled && !hasPromptedRef.current) {
+      hasPromptedRef.current = true;
+      const timer = setTimeout(() => {
+        setShowAutoPrompt(true);
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [currentUser?.id, isFaceEnrolled]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -53,8 +72,36 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
   const todayStr = new Date().toISOString().split('T')[0];
   const upcomingHoliday = (holidays || []).find((h: any) => h.date >= todayStr) || (holidays && holidays[0]);
 
+  // Swift Roster resolution for today
+  const todayRoster = (roster || []).find(
+    (r: any) => (r.employeeId === currentUser?.id || r.empCode === currentUser?.empCode) && r.date === todayStr
+  );
+
+  const isRosterWeeklyOff = useMemo(() => {
+    if (todayRoster) {
+      const shiftIdLow = (todayRoster.shiftId || '').toLowerCase();
+      const shiftNameLow = (todayRoster.shiftName || '').toLowerCase();
+      return shiftIdLow === 'off' || shiftIdLow === 'wo' || shiftNameLow.includes('off') || shiftNameLow.includes('weekly');
+    }
+    const todayDayOfWeek = new Date().getDay();
+    const weekdayName = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    if (currentUser?.weeklyOff && currentUser.weeklyOff.toLowerCase().includes(weekdayName)) {
+      return true;
+    }
+    if (companyConfig?.weeklyOffDays && Array.isArray(companyConfig.weeklyOffDays) && companyConfig.weeklyOffDays.includes(todayDayOfWeek)) {
+      return true;
+    }
+    if (currentUser?.shiftId === 'off' || currentUser?.shift?.toLowerCase().includes('off')) {
+      return true;
+    }
+    return false;
+  }, [todayRoster, currentUser, companyConfig]);
+
   const branches = companyConfig?.branches || [];
-  const branchName = branches.find((b: any) => b.id === currentUser?.branchId)?.name || currentUser?.branch || 'Head Office';
+  const assignedBranches = branches.filter((b: any) => (currentUser?.branchIds?.includes(b.id) || b.id === currentUser?.branchId));
+  const branchName = assignedBranches.length > 0
+    ? assignedBranches.map((b: any) => b.name).join(', ')
+    : (branches.find((b: any) => b.id === currentUser?.branchId)?.name || currentUser?.branch || 'Head Office');
   const userName = currentUser?.name?.split(' ')[0] || 'Employee';
 
   return (
@@ -75,10 +122,21 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
         {/* Hero Welcome Banner */}
         <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
           <View style={styles.heroHeader}>
-            <View style={[styles.shiftBadge, { backgroundColor: theme.isDark ? 'rgba(6, 182, 212, 0.15)' : '#e0f2fe', borderColor: theme.isDark ? 'rgba(6, 182, 212, 0.3)' : '#bae6fd' }]}>
-              <Icon name="clock" size={12} color={theme.cyan} />
-              <Text style={[styles.shiftText, { color: theme.cyan }]}>
-                {currentUser?.shift || 'Regular Shift  09:00 AM - 06:00 PM'}
+            <View
+              style={[
+                styles.shiftBadge,
+                isRosterWeeklyOff
+                  ? { backgroundColor: '#fef3c7', borderColor: '#fde68a' }
+                  : { backgroundColor: theme.isDark ? 'rgba(6, 182, 212, 0.15)' : '#e0f2fe', borderColor: theme.isDark ? 'rgba(6, 182, 212, 0.3)' : '#bae6fd' },
+              ]}
+            >
+              <Icon name={isRosterWeeklyOff ? 'coffee' : 'clock'} size={12} color={isRosterWeeklyOff ? '#d97706' : theme.cyan} />
+              <Text style={[styles.shiftText, { color: isRosterWeeklyOff ? '#d97706' : theme.cyan }]}>
+                {isRosterWeeklyOff
+                  ? 'Weekly Off (Swift Roster)'
+                  : todayRoster?.shiftName
+                  ? `${todayRoster.shiftName} ${todayRoster.shiftStart ? `(${todayRoster.shiftStart} - ${todayRoster.shiftEnd || ''})` : ''}`
+                  : (currentUser?.shift || 'Regular Shift (09:00 AM - 06:00 PM)')}
               </Text>
             </View>
             <Text style={[styles.heroDate, { color: theme.textMuted }]}>
@@ -97,8 +155,23 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
           <View style={[styles.punchWidget, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.statusLabel, { color: theme.textMuted }]}>TODAY'S STATUS</Text>
-              <Text style={[styles.statusValue, { color: isClockedIn ? theme.success : theme.danger }]}>
-                {isClockedIn && todayRecord ? `Checked In (${todayRecord.clockIn})` : 'Not Checked In'}
+              <Text
+                style={[
+                  styles.statusValue,
+                  {
+                    color: isClockedIn
+                      ? theme.success
+                      : isRosterWeeklyOff
+                      ? theme.warning
+                      : theme.danger,
+                  },
+                ]}
+              >
+                {isClockedIn && todayRecord
+                  ? `Checked In (${todayRecord.clockIn})`
+                  : isRosterWeeklyOff
+                  ? 'Weekly Off (Restricted)'
+                  : 'Not Checked In'}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                 <Icon name="location" size={12} color={theme.textMuted} />
@@ -108,16 +181,113 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
               </View>
             </View>
 
-            <TouchableOpacity
-              style={[styles.quickPunchBtn, { backgroundColor: isClockedIn ? theme.success : theme.cyan }]}
-              onPress={() => onNavigate('attendance')}
-              activeOpacity={0.85}
-            >
-              <Icon name="camera" size={16} color="#ffffff" />
-              <Text style={styles.quickPunchText}>{isClockedIn ? 'Check Out' : 'Check In'}</Text>
-            </TouchableOpacity>
+            {isClockedIn ? (
+              <TouchableOpacity
+                style={[styles.quickPunchBtn, { backgroundColor: theme.success }]}
+                onPress={() => onNavigate('attendance')}
+                activeOpacity={0.85}
+              >
+                <Icon name="camera" size={16} color="#ffffff" />
+                <Text style={styles.quickPunchText}>Check Out</Text>
+              </TouchableOpacity>
+            ) : isRosterWeeklyOff ? (
+              <TouchableOpacity
+                style={[
+                  styles.quickPunchBtn,
+                  { backgroundColor: theme.cardBorder, opacity: 0.75, borderWidth: 1, borderColor: theme.warning + '50' },
+                ]}
+                onPress={() =>
+                  Alert.alert(
+                    'Attendance Restricted',
+                    'Today is designated as Weekly Off in the Swift Roster. Attendance punch-in is restricted as per company policy.'
+                  )
+                }
+                activeOpacity={0.7}
+              >
+                <Icon name="lock" size={15} color={theme.warning} />
+                <Text style={[styles.quickPunchText, { color: theme.warning, fontSize: 11 }]}>Off Day (Locked)</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.quickPunchBtn, { backgroundColor: theme.cyan }]}
+                onPress={() => onNavigate('attendance')}
+                activeOpacity={0.85}
+              >
+                <Icon name="camera" size={16} color="#ffffff" />
+                <Text style={styles.quickPunchText}>Check In</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
+
+        {/* Biometric Face Enrollment Card (if face is not registered) */}
+        {!isFaceEnrolled && (
+          <View
+            style={[
+              styles.biometricCard,
+              {
+                backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.12)' : '#fef2f2',
+                borderColor: theme.isDark ? 'rgba(239, 68, 68, 0.35)' : '#fca5a5',
+              },
+            ]}
+          >
+            <View style={styles.biometricCardHeader}>
+              <View style={styles.biometricIconContainer}>
+                <View
+                  style={[
+                    styles.biometricIconOuterRing,
+                    {
+                      backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.12)',
+                      borderColor: '#ef4444',
+                    },
+                  ]}
+                >
+                  <Icon name="camera" size={20} color="#ef4444" />
+                </View>
+                <View style={[styles.pulseDot, { backgroundColor: '#dc2626' }]} />
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <View style={styles.biometricTitleRow}>
+                  <Text style={[styles.biometricCardTitle, { color: theme.isDark ? '#fca5a5' : '#991b1b' }]}>
+                    Face Biometrics Setup
+                  </Text>
+                  <View
+                    style={[
+                      styles.pendingPill,
+                      {
+                        backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.25)' : '#fee2e2',
+                        borderColor: theme.isDark ? 'rgba(239, 68, 68, 0.45)' : '#fca5a5',
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.pendingPillText, { color: '#dc2626' }]}>Action Required</Text>
+                  </View>
+                </View>
+                <Text style={[styles.biometricCardSub, { color: theme.isDark ? '#e2e8f0' : '#7f1d1d' }]}>
+                  Enroll your face profile in 10 seconds for seamless 1-tap AI facial check-in &amp; geofence punch.
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.enrollBtn,
+                {
+                  backgroundColor: '#dc2626',
+                },
+              ]}
+              onPress={() => setFaceModalVisible(true)}
+              activeOpacity={0.85}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Icon name="camera" size={15} color="#ffffff" />
+                <Text style={styles.enrollBtnText}>Enroll Face Profile Now</Text>
+              </View>
+              <Icon name="chevron-right" size={14} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Monthly Attendance Summary Metrics */}
         <View style={styles.sectionHeaderRow}>
@@ -249,6 +419,74 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Face Biometric Enrollment Camera Modal */}
+      <FaceRegistrationModal
+        visible={faceModalVisible}
+        onClose={() => setFaceModalVisible(false)}
+        theme={theme}
+      />
+
+      {/* Auto-Prompt Face Registration Popup Modal on entering Home Screen */}
+      <Modal
+        visible={showAutoPrompt && !isFaceEnrolled}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAutoPrompt(false)}
+      >
+        <View style={styles.promptModalOverlay}>
+          <View style={[styles.promptModalCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+            {/* Red glowing icon badge */}
+            <View style={styles.promptIconBadgeContainer}>
+              <View style={[styles.promptIconOuterGlow, { backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.12)' }]}>
+                <View style={[styles.promptIconCircle, { backgroundColor: '#dc2626' }]}>
+                  <Icon name="camera" size={28} color="#ffffff" />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.promptContent}>
+              <View style={[styles.promptBadge, { backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.25)' : '#fee2e2', borderColor: theme.isDark ? 'rgba(239, 68, 68, 0.4)' : '#fca5a5' }]}>
+                <Text style={[styles.promptBadgeText, { color: '#dc2626' }]}>Biometric Setup Required</Text>
+              </View>
+
+              <Text style={[styles.promptTitle, { color: theme.textPrimary }]}>
+                Register Your Face Profile
+              </Text>
+              <Text style={[styles.promptDescription, { color: theme.textMuted }]}>
+                Hi <Text style={{ fontWeight: '800', color: theme.textPrimary }}>{userName}</Text>, your facial biometric profile is pending registration.
+                {'\n\n'}
+                Enroll your face in under 10 seconds to unlock <Text style={{ fontWeight: '700', color: theme.textPrimary }}>1-tap AI facial attendance &amp; check-in</Text>.
+              </Text>
+
+              {/* Action Button Stack */}
+              <View style={styles.promptButtonStack}>
+                <TouchableOpacity
+                  style={[styles.promptPrimaryBtn, { backgroundColor: '#dc2626' }]}
+                  onPress={() => {
+                    setShowAutoPrompt(false);
+                    setFaceModalVisible(true);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Icon name="camera" size={16} color="#ffffff" />
+                  <Text style={styles.promptPrimaryBtnText}>Register Face Now</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.promptSecondaryBtn, { borderColor: theme.cardBorder, backgroundColor: theme.inputBg }]}
+                  onPress={() => setShowAutoPrompt(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.promptSecondaryBtnText, { color: theme.textMuted }]}>
+                    Remind Me Later
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -467,5 +705,174 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 11,
     fontWeight: '800',
+  },
+  biometricCard: {
+    borderRadius: 22,
+    borderWidth: 1.5,
+    padding: 16,
+    marginBottom: 20,
+    ...SHADOWS.md,
+  },
+  biometricCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 14,
+  },
+  biometricIconContainer: {
+    position: 'relative',
+  },
+  biometricIconOuterRing: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pulseDot: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+  },
+  biometricTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 2,
+  },
+  biometricCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  pendingPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pendingPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  biometricCardSub: {
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 17,
+  },
+  enrollBtn: {
+    height: 42,
+    borderRadius: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    ...SHADOWS.sm,
+  },
+  enrollBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  promptModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  promptModalCard: {
+    width: Math.min(width - 36, 380),
+    borderRadius: 24,
+    borderWidth: 1.5,
+    padding: 22,
+    alignItems: 'center',
+    ...SHADOWS.md,
+  },
+  promptIconBadgeContainer: {
+    marginBottom: 12,
+  },
+  promptIconOuterGlow: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  promptIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...SHADOWS.sm,
+  },
+  promptContent: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  promptBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  promptBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  promptTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  promptDescription: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 20,
+    paddingHorizontal: 6,
+  },
+  promptButtonStack: {
+    width: '100%',
+    gap: 10,
+  },
+  promptPrimaryBtn: {
+    height: 48,
+    borderRadius: 14,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    ...SHADOWS.sm,
+  },
+  promptPrimaryBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  promptSecondaryBtn: {
+    height: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  promptSecondaryBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

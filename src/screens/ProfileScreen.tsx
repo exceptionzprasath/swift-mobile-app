@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
+import { FaceRegistrationModal } from '../components/FaceRegistrationModal';
 import { useAppContext } from '../context/AppContext';
 
 interface ProfileScreenProps {
@@ -19,7 +20,10 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenProps) {
-  const { currentUser } = useAppContext();
+  const { currentUser, companyConfig } = useAppContext();
+  const [faceModalVisible, setFaceModalVisible] = useState(false);
+
+  const isFaceEnrolled = Boolean(currentUser?.faceRegistered || (currentUser?.photoDataUrl && currentUser.photoDataUrl.startsWith('http')));
 
   const handleLogoutPress = () => {
     Alert.alert(
@@ -33,6 +37,11 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
   };
 
   const initial = currentUser?.name ? currentUser.name.charAt(0) : 'E';
+  const branches = companyConfig?.branches || [];
+  const assignedBranches = branches.filter((b: any) => (currentUser?.branchIds?.includes(b.id) || b.id === currentUser?.branchId));
+  const branchNameDisplay = assignedBranches.length > 0
+    ? assignedBranches.map((b: any) => `${b.name} (${b.code})`).join(', ')
+    : (branches.find((b: any) => b.id === currentUser?.branchId)?.name || currentUser?.branch || 'Head Office');
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
@@ -52,6 +61,24 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
             ID: {currentUser?.empCode || currentUser?.code || currentUser?.id || 'EMP-001'} • Full-Time
           </Text>
         </View>
+
+        {/* Biometric Quick Registration Pill */}
+        <TouchableOpacity
+          style={[
+            styles.updateFaceBtn,
+            {
+              backgroundColor: isFaceEnrolled ? (theme.isDark ? 'rgba(99, 102, 241, 0.15)' : '#e0e7ff') : (theme.isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7'),
+              borderColor: isFaceEnrolled ? theme.primary : theme.warning,
+            },
+          ]}
+          onPress={() => setFaceModalVisible(true)}
+          activeOpacity={0.8}
+        >
+          <Icon name="camera" size={13} color={isFaceEnrolled ? theme.primary : '#d97706'} />
+          <Text style={[styles.updateFaceText, { color: isFaceEnrolled ? theme.primary : '#d97706' }]}>
+            {isFaceEnrolled ? 'Update Face Biometric' : 'Register Face Biometric Now'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Work Information Card */}
@@ -62,8 +89,8 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
           <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.department || 'General'}</Text>
         </View>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
-          <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Branch Location</Text>
-          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.branch || 'Head Office'}</Text>
+          <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Assigned Branches</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{branchNameDisplay}</Text>
         </View>
         <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Current Shift</Text>
@@ -98,6 +125,10 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
           <Text style={[styles.infoLabel, { color: theme.textMuted }]}>PAN Card</Text>
           <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.panNumber || currentUser?.pan || 'Verified'}</Text>
         </View>
+        <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
+          <Text style={[styles.infoLabel, { color: theme.textMuted }]}>PF UAN No</Text>
+          <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{(currentUser as any)?.uan || '100987654321'}</Text>
+        </View>
       </View>
 
       {/* App Preferences */}
@@ -113,19 +144,35 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
           </Text>
         </TouchableOpacity>
 
-        <View style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: theme.cardBorder, marginTop: 8, paddingTop: 12 }]}>
+        <TouchableOpacity
+          style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: theme.cardBorder, marginTop: 8, paddingTop: 12 }]}
+          onPress={() => setFaceModalVisible(true)}
+          activeOpacity={0.75}
+        >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Icon name="camera" size={18} color={theme.primary} />
             <Text style={[styles.settingLabel, { color: theme.textPrimary }]}>Biometric Face ID Punch</Text>
           </View>
-          <Text style={[styles.settingVal, { color: theme.success }]}>Enabled</Text>
-        </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={[styles.settingVal, { color: isFaceEnrolled ? theme.success : '#d97706' }]}>
+              {isFaceEnrolled ? 'Enrolled ✓' : 'Pending ⚠️'}
+            </Text>
+            <Icon name="chevron-right" size={12} color={theme.textMuted} />
+          </View>
+        </TouchableOpacity>
       </View>
 
       {/* Logout Button */}
       <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]} onPress={handleLogoutPress} activeOpacity={0.8}>
         <Text style={[styles.logoutBtnText, { color: theme.danger }]}>Log Out of Account</Text>
       </TouchableOpacity>
+
+      {/* Face Biometric Enrollment Modal */}
+      <FaceRegistrationModal
+        visible={faceModalVisible}
+        onClose={() => setFaceModalVisible(false)}
+        theme={theme}
+      />
     </ScrollView>
   );
 }
@@ -234,5 +281,19 @@ const styles = StyleSheet.create({
   logoutBtnText: {
     fontSize: 14,
     fontWeight: '800',
+  },
+  updateFaceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  updateFaceText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

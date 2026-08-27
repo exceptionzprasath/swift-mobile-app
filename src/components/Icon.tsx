@@ -37,7 +37,8 @@ export type IconName =
   | 'help'
   | 'logout'
   | 'coffee'
-  | 'alert-circle';
+  | 'alert-circle'
+  | 'lock';
 
 interface IconProps {
   name: IconName;
@@ -293,6 +294,16 @@ export function Icon({ name, size = 20, color = '#0f766e' }: IconProps) {
       return (
         <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
           <Text style={{ color, fontSize: size * 0.85, fontWeight: '800' }}>⎋</Text>
+        </View>
+      );
+
+    case 'lock':
+      return (
+        <View style={{ width: size * 0.8, height: size * 0.9, alignItems: 'center', justifyContent: 'flex-end' }}>
+          <View style={{ width: size * 0.5, height: size * 0.45, borderTopLeftRadius: size * 0.25, borderTopRightRadius: size * 0.25, borderWidth: 1.8, borderColor: color, borderBottomWidth: 0, marginBottom: -1 }} />
+          <View style={{ width: size * 0.75, height: size * 0.5, backgroundColor: color, borderRadius: 3, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 2, height: 4, backgroundColor: '#fff', borderRadius: 1 }} />
+          </View>
         </View>
       );
 

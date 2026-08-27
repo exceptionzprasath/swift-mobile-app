@@ -13,11 +13,13 @@ import {
   PermissionsAndroid,
   Platform,
   RefreshControl,
+  TextInput,
 } from 'react-native';
 import { launchCamera } from 'react-native-image-picker';
 import Geolocation from '@react-native-community/geolocation';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
+import { FaceRegistrationModal } from '../components/FaceRegistrationModal';
 import { useAppContext } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
@@ -95,19 +97,33 @@ interface AttendanceScreenProps {
 }
 
 export function AttendanceScreen({ theme }: AttendanceScreenProps) {
-  const { currentUser, clockIn, clockOut, attendance, isClockedIn, companyConfig, refreshData, roster } = useAppContext();
+  const { currentUser, clockIn, clockOut, attendance, isClockedIn, companyConfig, refreshData, roster, holidays = [], leaves = [], applyLeave } = useAppContext();
   const [activeTab, setActiveTab] = useState<'punch' | 'calendar'>('punch');
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
   const [refreshing, setRefreshing] = useState(false);
 
-  // Biometric Scanner Modal State
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
+  const [selectedDayDetails, setSelectedDayDetails] = useState<any | null>(null);
+  const [applyModalType, setApplyModalType] = useState<'leave' | 'onduty' | 'permission' | null>(null);
+  const [applyForm, setApplyForm] = useState({
+    category: 'Casual Leave',
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
+    days: '1',
+    reason: '',
+    permDate: new Date().toISOString().slice(0, 10),
+    permHours: '1',
+    odType: 'On Duty',
+  });
+  const [applyLoading, setApplyLoading] = useState(false);
+
   const [scannerModalVisible, setScannerModalVisible] = useState(false);
   const [scanningStatus, setScanningStatus] = useState<'ready' | 'capturing' | 'verifying' | 'success' | 'failed'>('ready');
   const [resultMsg, setResultMsg] = useState('');
   const [matchScore, setMatchScore] = useState<number | null>(null);
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
 
-  // Auto-fetched Device Coordinates
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
 
@@ -136,14 +152,19 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
   }, []);
 
   const branches = companyConfig?.branches || [];
-  const assignedBranch = branches.find((b: any) => b.id === currentUser?.branchId) || branches[0];
+  const userAssignedBranchIds: string[] = Array.isArray(currentUser?.branchIds) && currentUser.branchIds.length > 0
+    ? currentUser.branchIds
+    : (currentUser?.branchId ? [currentUser.branchId] : []);
 
-  const branchLat = assignedBranch?.lat ?? 11.305639;
-  const branchLng = assignedBranch?.lng ?? 77.703474;
-  const branchRadius = assignedBranch?.radiusMeters ?? 100;
-  const branchName = assignedBranch?.name || 'Head Office';
+  const assignedBranches = branches.filter((b: any) => userAssignedBranchIds.includes(b.id));
+  const effectiveBranches = assignedBranches.length > 0 ? assignedBranches : (branches.length > 0 ? [branches[0]] : []);
+  const primaryBranch = effectiveBranches.find((b: any) => b.id === currentUser?.branchId) || effectiveBranches[0];
 
-  // Shift & Grace Time Punctuality Evaluation with Roster Support
+  const branchLat = primaryBranch?.lat ?? 11.305639;
+  const branchLng = primaryBranch?.lng ?? 77.703474;
+  const branchRadius = primaryBranch?.radiusMeters ?? 100;
+  const branchName = effectiveBranches.map((b: any) => b.name).join(', ') || primaryBranch?.name || 'Head Office';
+
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayRoster = (roster || []).find(
     (r: any) => r.employeeId === currentUser?.id && r.date === todayStr
@@ -151,17 +172,34 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
   const shiftList = companyConfig?.shifts || [];
   const effectiveShiftId = todayRoster ? todayRoster.shiftId : currentUser?.shiftId;
-  const isWeeklyOffToday = effectiveShiftId === 'off';
-
-  const assignedShift = shiftList.find((s: any) => s.id === effectiveShiftId) || shiftList[0] || { start: '09:00', end: '18:00', name: 'General' };
+  const assignedShift = shiftList.find((s: any) => s.id === effectiveShiftId) || shiftList[0] || { start: '09:00', end: '18:00', name: 'General Shift 4.30' };
   const shiftStartStr = todayRoster?.shiftStart || assignedShift.start || '09:00';
-  const shiftNameStr = todayRoster?.shiftName || assignedShift.name || 'General Shift';
   const graceTimeSetting = todayRoster?.graceTime || currentUser?.graceTime || assignedShift.graceTime || '15';
+  const afternoonGraceSetting = todayRoster?.afternoonGraceTime || currentUser?.afternoonGraceTime || assignedShift.afternoonGraceTime || '15';
   const allowHalfDayLogin = (todayRoster?.allowHalfDayLogin ?? currentUser?.allowHalfDayLogin ?? assignedShift.allowHalfDayLogin) !== false;
   const halfDayLoginTimeStr = todayRoster?.halfDayLoginTime || currentUser?.halfDayLoginTime || assignedShift.halfDayLoginTime || '12:00';
 
+  const isRosterWeeklyOff = useMemo(() => {
+    if (todayRoster) {
+      const shiftIdLow = (todayRoster.shiftId || '').toLowerCase();
+      const shiftNameLow = (todayRoster.shiftName || '').toLowerCase();
+      return shiftIdLow === 'off' || shiftIdLow === 'wo' || shiftNameLow.includes('off') || shiftNameLow.includes('weekly');
+    }
+    const todayDayOfWeek = new Date().getDay();
+    const weekdayName = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    if (currentUser?.weeklyOff && currentUser.weeklyOff.toLowerCase().includes(weekdayName)) {
+      return true;
+    }
+    if (companyConfig?.weeklyOffDays && Array.isArray(companyConfig.weeklyOffDays) && companyConfig.weeklyOffDays.includes(todayDayOfWeek)) {
+      return true;
+    }
+    if (currentUser?.shiftId === 'off' || currentUser?.shift?.toLowerCase().includes('off')) {
+      return true;
+    }
+    return false;
+  }, [todayRoster, currentUser, companyConfig]);
+
   const punctualityStatus = useMemo(() => {
-    // If user is already clocked in, clock-out is always permitted
     if (isClockedIn) {
       return {
         isAllowed: true,
@@ -169,97 +207,129 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
         message: 'Clock-out active. Verify face to punch out.',
         isAfternoonSession: false,
         unlocksAt: undefined,
+        isWeeklyOff: false,
       };
     }
 
-    // Flexible grace mode (Always)
-    if (graceTimeSetting === 'always') {
+    if (isRosterWeeklyOff) {
       return {
-        isAllowed: true,
-        reason: 'flexible',
-        message: 'Flexible punch-in active (No cutoff).',
+        isAllowed: false,
+        reason: 'roster_weekoff_restricted',
+        message: 'Today is assigned as Weekly Off in the Swift Roster. Attendance punch-in is restricted as per policy.',
         isAfternoonSession: false,
         unlocksAt: undefined,
+        isWeeklyOff: true,
       };
     }
 
     const now = new Date();
     const currentMins = now.getHours() * 60 + now.getMinutes();
 
-    // Parse Shift Start
     const [startH, startM] = shiftStartStr.split(':').map((x: string) => parseInt(x, 10) || 0);
     const shiftStartMins = startH * 60 + startM;
 
-    // Parse Grace Duration
-    const graceMins = parseInt(graceTimeSetting, 10) || 15;
-    const morningCutoffMins = shiftStartMins + graceMins;
+    const isMorningFlexible = graceTimeSetting === 'always';
+    const morningGraceMins = parseInt(graceTimeSetting, 10) || 15;
+    const morningCutoffMins = shiftStartMins + morningGraceMins;
 
-    // Parse Half Day Login Time (e.g. "12:00")
     const [halfH, halfM] = halfDayLoginTimeStr.split(':').map((x: string) => parseInt(x, 10) || 0);
     const halfDayMins = halfH * 60 + halfM;
 
-    // 1. Within Morning Grace Window
-    if (currentMins <= morningCutoffMins) {
-      const minsRemaining = Math.max(0, morningCutoffMins - currentMins);
-      return {
-        isAllowed: true,
-        reason: 'morning_grace_valid',
-        message: `Morning Punch Active (${minsRemaining}m grace left before ${String(Math.floor(morningCutoffMins / 60)).padStart(2, '0')}:${String(morningCutoffMins % 60).padStart(2, '0')}).`,
-        isAfternoonSession: false,
-        unlocksAt: undefined,
-      };
-    }
+    const isAfternoonFlexible = afternoonGraceSetting === 'always';
+    const afternoonGraceMins = parseInt(afternoonGraceSetting, 10) || 15;
+    const afternoonCutoffMins = halfDayMins + afternoonGraceMins;
 
-    // 2. Morning Grace Exceeded, but Before Afternoon Window
-    if (currentMins > morningCutoffMins && currentMins < halfDayMins) {
-      if (allowHalfDayLogin) {
+    if (currentMins < halfDayMins) {
+      if (isMorningFlexible || currentMins <= morningCutoffMins) {
+        const minsRemaining = isMorningFlexible ? 999 : Math.max(0, morningCutoffMins - currentMins);
+        const cutoffFormatted = `${String(Math.floor(morningCutoffMins / 60)).padStart(2, '0')}:${String(morningCutoffMins % 60).padStart(2, '0')}`;
         return {
-          isAllowed: false,
-          reason: 'morning_exceeded_awaiting_afternoon',
-          message: `Morning grace period exceeded (${graceMins}m). Marked Absent for Morning. Afternoon check-in opens at ${halfDayLoginTimeStr}.`,
-          isAfternoonSession: false,
-          unlocksAt: halfDayLoginTimeStr,
-        };
-      } else {
-        return {
-          isAllowed: false,
-          reason: 'locked_full_day',
-          message: `Grace period exceeded (${graceMins}m past ${shiftStartStr}). Attendance locked for the entire day (Marked Full Day Absent).`,
+          isAllowed: true,
+          reason: 'morning_grace_valid',
+          message: isMorningFlexible
+            ? 'Morning Punch Active (Flexible Grace - No cutoff).'
+            : `Morning Punch Active (${minsRemaining}m grace left before ${cutoffFormatted}).`,
           isAfternoonSession: false,
           unlocksAt: undefined,
+          isWeeklyOff: false,
         };
+      } else {
+        if (allowHalfDayLogin) {
+          return {
+            isAllowed: false,
+            reason: 'morning_exceeded_awaiting_afternoon',
+            message: `Morning grace period exceeded (${morningGraceMins}m). Marked Absent for Morning. Afternoon check-in opens at ${halfDayLoginTimeStr}.`,
+            isAfternoonSession: false,
+            unlocksAt: halfDayLoginTimeStr,
+            isWeeklyOff: false,
+          };
+        } else {
+          return {
+            isAllowed: false,
+            reason: 'locked_full_day',
+            message: `Grace period exceeded (${morningGraceMins}m past ${shiftStartStr}). Attendance locked for the entire day (Marked Full Day Absent).`,
+            isAfternoonSession: false,
+            unlocksAt: undefined,
+            isWeeklyOff: false,
+          };
+        }
       }
     }
 
-    // 3. Afternoon Login Window Reached (>= Half Day Time)
     if (currentMins >= halfDayMins) {
-      if (allowHalfDayLogin) {
-        return {
-          isAllowed: true,
-          reason: 'afternoon_half_day_allowed',
-          message: `Morning marked Absent. Afternoon attendance check-in active (Half Day).`,
-          isAfternoonSession: true,
-          unlocksAt: undefined,
-        };
-      } else {
+      if (!allowHalfDayLogin) {
         return {
           isAllowed: false,
           reason: 'locked_full_day',
           message: `Morning grace period missed. Attendance locked for full day as per policy (Marked Full Day Absent).`,
           isAfternoonSession: false,
           unlocksAt: undefined,
+          isWeeklyOff: false,
+        };
+      }
+
+      if (isAfternoonFlexible || currentMins <= afternoonCutoffMins) {
+        const minsRemaining = isAfternoonFlexible ? 999 : Math.max(0, afternoonCutoffMins - currentMins);
+        const cutoffFormatted = `${String(Math.floor(afternoonCutoffMins / 60)).padStart(2, '0')}:${String(afternoonCutoffMins % 60).padStart(2, '0')}`;
+        return {
+          isAllowed: true,
+          reason: 'afternoon_grace_valid',
+          message: isAfternoonFlexible
+            ? 'Afternoon Punch Active (Half-Day Session - Flexible Grace).'
+            : `Afternoon Punch Active (Half-Day Session, ${minsRemaining}m grace left before ${cutoffFormatted}).`,
+          isAfternoonSession: true,
+          unlocksAt: undefined,
+          isWeeklyOff: false,
+        };
+      } else {
+        return {
+          isAllowed: false,
+          reason: 'afternoon_exceeded_locked',
+          message: `Afternoon grace period exceeded (${afternoonGraceMins}m past ${halfDayLoginTimeStr}). Attendance locked for the day (Marked Absent).`,
+          isAfternoonSession: true,
+          unlocksAt: undefined,
+          isWeeklyOff: false,
         };
       }
     }
 
     return {
       isAllowed: true,
-      reason: 'standard',
-      message: 'Ready to punch.',
+      reason: 'ok',
+      message: 'Active',
       isAfternoonSession: false,
       unlocksAt: undefined,
+      isWeeklyOff: false,
     };
-  }, [isClockedIn, graceTimeSetting, shiftStartStr, halfDayLoginTimeStr, allowHalfDayLogin, currentTime]);
+  }, [
+    isClockedIn,
+    isRosterWeeklyOff,
+    shiftStartStr,
+    graceTimeSetting,
+    afternoonGraceSetting,
+    allowHalfDayLogin,
+    halfDayLoginTimeStr,
+  ]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -268,15 +338,22 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
     return () => clearInterval(timer);
   }, []);
 
-  const openBiometricScanner = () => {
-    if (!punctualityStatus.isAllowed) {
+  const [faceModalVisible, setFaceModalVisible] = useState(false);
+
+  const isFaceEnrolled = Boolean(currentUser?.faceRegistered || (currentUser?.photoDataUrl && currentUser.photoDataUrl.startsWith('http')));
+
+  const handleOpenScanner = () => {
+    if (!isFaceEnrolled) {
       Alert.alert(
-        'Attendance Locked',
-        punctualityStatus.message
+        'Face Biometrics Required',
+        'You have not enrolled your face biometric profile yet. Please register your face first to enable AI Face Attendance.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Register Face Now', onPress: () => setFaceModalVisible(true) },
+        ]
       );
       return;
     }
-
     setScanningStatus('ready');
     setResultMsg('');
     setMatchScore(null);
@@ -285,110 +362,90 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
   };
 
   const handleStartBiometricVerification = async () => {
-    setScanningStatus('verifying');
-
-    const isGeofenceBypassed = currentUser?.geofencingEnabled === false || !!assignedBranch?.geofenceDisabled;
-
-    if (isGeofenceBypassed) {
-      console.log('[Geofence] Geofencing is bypassed for this employee. Facial recognition alone is sufficient.');
-      setResultMsg('Geofence bypassed for your profile. Initializing face scanner...');
-    } else {
-      setResultMsg('Requesting device location...');
-
-      // 1. Permission Check
-      const hasPermission = await requestLocationPermission();
-      if (!hasPermission) {
-        setScanningStatus('failed');
-        setResultMsg('Geofence Failed: Location permission denied.');
-        Alert.alert('Permission Denied', 'Location permission is required to check in/out.');
-        return;
-      }
-
-      setResultMsg('Verifying geofence coordinates...');
-
-      // 2. Fetch Native GPS Location
-      let empLat = 0;
-      let empLng = 0;
-      try {
-        const coords = await getCurrentLocation();
-        empLat = coords.latitude;
-        empLng = coords.longitude;
-      } catch (err: any) {
-        setScanningStatus('failed');
-        const errMessage = err?.message || 'Could not fetch GPS location.';
-        setResultMsg(`Geofence Error: ${errMessage}`);
-        Alert.alert('GPS Location Error', 'Ensure device GPS is turned on and location access is granted.');
-        return;
-      }
-
-      // 3. Haversine Distance Check
-      const distanceMeters = getDistanceMeters(empLat, empLng, branchLat, branchLng);
-      if (distanceMeters > branchRadius) {
-        setScanningStatus('failed');
-        setResultMsg(`Out of Geofence: ${Math.round(distanceMeters)}m away.`);
-        Alert.alert(
-          'Geofence Check Failed',
-          `You are outside the geofence radius of your branch (${branchName}).\n\nDistance: ${Math.round(distanceMeters)}m\nRequired: ${branchRadius}m`
-        );
-        return;
-      }
-
-      setResultMsg('Geofence verified! Initializing face scanner...');
-    }
-
     try {
-      // Launch native camera
-      const response = await launchCamera({
+      setScanningStatus('capturing');
+      setResultMsg('Launching front camera...');
+
+      const result = await launchCamera({
         mediaType: 'photo',
         cameraType: 'front',
+        quality: 0.8,
         includeBase64: true,
-        quality: 0.7,
       });
 
-      if (response.didCancel) {
-        Alert.alert('Cancelled', 'Face scan cancelled.');
+      if (result.didCancel || !result.assets || result.assets.length === 0) {
+        setScanningStatus('ready');
+        setResultMsg('Biometric capture cancelled.');
         return;
       }
 
-      if (response.errorMessage) {
-        Alert.alert('Camera Error', response.errorMessage);
-        return;
-      }
-
-      const asset = response.assets?.[0];
-      if (!asset || !asset.base64) {
-        Alert.alert('Error', 'Could not capture face image.');
-        return;
-      }
-
-      // Display preview of the captured face
+      const asset = result.assets[0];
       setCapturedImageUri(asset.uri || null);
 
-      // Update status to verifying
+      let photoDataUrl = asset.base64
+        ? `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`
+        : asset.uri || '';
+
       setScanningStatus('verifying');
+      setResultMsg('Transmitting biometric packet to AWS Rekognition engine...');
 
-      // Generate base64 data url
-      const faceSnapshotBase64 = `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`;
+      const isGeofenceExempt = currentUser?.geofencingEnabled === false;
+      if (!isGeofenceExempt) {
+        try {
+          const coords = await getCurrentLocation();
+          setUserCoords({ lat: coords.latitude, lng: coords.longitude });
+          const userLat = coords.latitude;
+          const userLng = coords.longitude;
+          let isInRange = false;
+          let closestDist = 999999;
+          for (const b of effectiveBranches) {
+            const d = getDistanceMeters(userLat, userLng, b.lat ?? branchLat, b.lng ?? branchLng);
+            if (d < closestDist) closestDist = d;
+            if (d <= (b.radiusMeters ?? branchRadius)) {
+              isInRange = true;
+              break;
+            }
+          }
 
-      // Call API (clockIn or clockOut)
-      let res;
-      if (!isClockedIn) {
-        res = await clockIn(faceSnapshotBase64);
-      } else {
-        res = await clockOut(faceSnapshotBase64);
+          if (!isInRange) {
+            setScanningStatus('failed');
+            setResultMsg(
+              `Geofence verification failed. You are ${Math.round(closestDist)}m away from assigned branch boundaries (Allowed limit: ${branchRadius}m).`
+            );
+            return;
+          }
+        } catch (locErr: any) {
+          console.warn('[Location] GPS verification error:', locErr);
+          setScanningStatus('failed');
+          setResultMsg('Could not verify GPS coordinates. Please ensure High Accuracy Location / GPS is enabled on your device.');
+          return;
+        }
       }
 
-      if (res && res.success) {
+      let clockResult: any;
+      if (isClockedIn) {
+        clockResult = await clockOut(photoDataUrl);
+      } else {
+        clockResult = await clockIn(photoDataUrl);
+      }
+
+      if (clockResult && clockResult.success) {
         setScanningStatus('success');
-        setMatchScore(res.similarity || 99.4);
+        setMatchScore(clockResult.similarity || 99.4);
         setResultMsg(
-          !isClockedIn
-            ? `Face Verified! Clock In recorded for ${currentUser?.name || 'Employee'} (${currentUser?.empCode || 'SW001'}).`
-            : `Face Verified! Clock Out recorded for ${currentUser?.name || 'Employee'} (${currentUser?.empCode || 'SW001'}).`
+          isClockedIn
+            ? `Clock-out logged successfully. Shift completed. Facial Confidence: ${(clockResult.similarity || 99.4).toFixed(1)}%`
+            : `Clock-in authenticated successfully. Have a productive day! Facial Confidence: ${(clockResult.similarity || 99.4).toFixed(1)}%`
         );
+        setTimeout(() => {
+          setScannerModalVisible(false);
+        }, 2200);
       } else {
         setScanningStatus('failed');
-        setResultMsg(res?.reason || 'Facial verification failed. Face does not match registered profile.');
+        setResultMsg(
+          clockResult?.reason ||
+            'Face did not match registered biometric profile. Please align face clearly in good lighting and try again.'
+        );
       }
     } catch (err: any) {
       setScanningStatus('failed');
@@ -396,414 +453,773 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
     }
   };
 
-  const userLogs = attendance.filter((a) => a.employeeId === currentUser?.id || a.employeeName === currentUser?.name);
+  const userLogs = attendance.filter(
+    (a) => a.employeeId === currentUser?.id || (currentUser?.empCode && a.empCode === currentUser.empCode) || a.employeeName === currentUser?.name
+  );
 
-  const nowYearMonth = new Date();
-  const year = nowYearMonth.getFullYear();
-  const month = nowYearMonth.getMonth();
-  const daysInCurrentMonthCount = new Date(year, month + 1, 0).getDate();
-  const todayDateNum = nowYearMonth.getDate();
+  const todayDateNum = new Date().getDate();
+  const todayMonthNum = new Date().getMonth();
+  const todayYearNum = new Date().getFullYear();
 
-  const daysInMonth = Array.from({ length: daysInCurrentMonthCount }, (_, i) => {
-    const dayNum = i + 1;
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-    const dayOfWeek = new Date(year, month, dayNum).getDay();
-    const existingRec = userLogs.find((a) => a.date === dateStr);
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
 
-    let status: 'present' | 'absent' | 'late' | 'halfday' | 'holiday' | 'weekend' = 'present';
-    let otHours = 0;
-
-    if (existingRec) {
-      status = existingRec.status;
-      otHours = Number(existingRec.otHours) || 0;
-    } else if (dayOfWeek === 0 || dayOfWeek === 6) {
-      status = 'weekend';
-    } else if (dayNum > todayDateNum) {
-      status = 'weekend';
+  const handlePrevMonth = () => {
+    if (selectedMonth === 0) {
+      setSelectedMonth(11);
+      setSelectedYear((y) => y - 1);
     } else {
-      status = 'absent';
+      setSelectedMonth((m) => m - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (selectedMonth === 11) {
+      setSelectedMonth(0);
+      setSelectedYear((y) => y + 1);
+    } else {
+      setSelectedMonth((m) => m + 1);
+    }
+  };
+
+  const handleTodayMonth = () => {
+    setSelectedYear(todayYearNum);
+    setSelectedMonth(todayMonthNum);
+  };
+
+  const parseTimeToMinutes = (timeStr?: string): number => {
+    if (!timeStr) return -1;
+    const clean = timeStr.trim();
+    const ampmMatch = clean.match(/(\d+):(\d+)(?::\d+)?\s*(AM|PM)?/i);
+    if (!ampmMatch) return -1;
+    let h = parseInt(ampmMatch[1], 10);
+    const m = parseInt(ampmMatch[2], 10);
+    const mer = (ampmMatch[3] || '').toUpperCase();
+    if (mer === 'PM' && h < 12) h += 12;
+    if (mer === 'AM' && h === 12) h = 0;
+    return h * 60 + m;
+  };
+
+  const format12Hour = (timeStr?: string): string => {
+    if (!timeStr) return '';
+    const clean = timeStr.trim();
+    if (clean.includes('AM') || clean.includes('PM')) {
+      return clean.replace(/(:\d{2})(:\d{2})/, '$1');
+    }
+    const parts = clean.split(':');
+    if (parts.length >= 2) {
+      let h = parseInt(parts[0], 10) || 0;
+      const m = String(parseInt(parts[1], 10) || 0).padStart(2, '0');
+      const mer = h >= 12 ? 'PM' : 'AM';
+      if (h > 12) h -= 12;
+      if (h === 0) h = 12;
+      return `${String(h).padStart(2, '0')}:${m} ${mer}`;
+    }
+    return clean;
+  };
+
+  const daysInSelectedMonthCount = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+  const firstDayOfWeek = new Date(selectedYear, selectedMonth, 1).getDay();
+
+  const monthDaysList = useMemo(() => {
+    return Array.from({ length: daysInSelectedMonthCount }, (_, i) => {
+      const dayNum = i + 1;
+      const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      const dayOfWeek = new Date(selectedYear, selectedMonth, dayNum).getDay();
+      const existingRec = userLogs.find((a) => a.date === dateStr);
+      const rosterEntry = (roster || []).find((r: any) => (r.employeeId === currentUser?.id || r.empCode === currentUser?.empCode) && r.date === dateStr);
+      const holidayEntry = (holidays || []).find((h: any) => h.date === dateStr);
+      const leaveEntry = (leaves || []).find((l: any) => (l.employeeId === currentUser?.id || l.employeeName === currentUser?.name) && l.status === 'Approved' && dateStr >= l.startDate && dateStr <= l.endDate);
+      const isWeekoff = rosterEntry?.shiftId === 'off' || (!rosterEntry && (dayOfWeek === 0));
+      const shiftName = rosterEntry?.shiftName || assignedShift.name || 'General Shift 4.30';
+      const shiftStart = rosterEntry?.shiftStart || assignedShift.start || '09:00';
+      const shiftEnd = rosterEntry?.shiftEnd || assignedShift.end || '16:30';
+      const shiftStartMins = parseTimeToMinutes(shiftStart);
+      const shiftEndMins = parseTimeToMinutes(shiftEnd);
+      const targetDurationMins = shiftStartMins >= 0 && shiftEndMins >= 0 ? (shiftEndMins - shiftStartMins) : 450;
+      let inMins = -1, outMins = -1, effectiveMins = 0, earlyComingMins = 0, lateComingMins = 0, excessStayMins = 0, shortfallMins = 0, timingsStr = '--';
+      if (existingRec?.clockIn) {
+        inMins = parseTimeToMinutes(existingRec.clockIn);
+        const inFmt = format12Hour(existingRec.clockIn);
+
+        // Calculate early vs late check-in against scheduled shift start
+        if (shiftStartMins >= 0 && inMins >= 0) {
+          if (inMins < shiftStartMins) {
+            earlyComingMins = shiftStartMins - inMins;
+          } else if (inMins > shiftStartMins) {
+            lateComingMins = inMins - shiftStartMins;
+          }
+        }
+
+        if (existingRec.clockOut) {
+          outMins = parseTimeToMinutes(existingRec.clockOut);
+          const outFmt = format12Hour(existingRec.clockOut);
+          timingsStr = `${inFmt} - ${outFmt}`;
+          if (inMins >= 0 && outMins >= 0) {
+            let diff = outMins - inMins;
+            if (diff < 0) diff += 24 * 60;
+            effectiveMins = diff;
+            if (diff > targetDurationMins) excessStayMins = diff - targetDurationMins;
+            else if (shiftEndMins >= 0 && outMins > shiftEndMins) excessStayMins = outMins - shiftEndMins;
+            if (diff < targetDurationMins) shortfallMins = targetDurationMins - diff;
+          }
+        } else {
+          timingsStr = `${inFmt} - Active`;
+        }
+      } else if (leaveEntry) {
+        timingsStr = leaveEntry.type || 'On Leave';
+      } else if (holidayEntry) {
+        timingsStr = holidayEntry.name || 'Holiday';
+      } else if (isWeekoff) {
+        timingsStr = 'Weekoff';
+      }
+      const formatMinsToHHMM = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+      return {
+        day: dayNum,
+        dateStr,
+        dayOfWeek,
+        shiftName,
+        timingsStr,
+        isWeekoff,
+        holidayEntry,
+        leaveEntry,
+        existingRec,
+        effectiveHoursStr: effectiveMins > 0 ? formatMinsToHHMM(effectiveMins) : null,
+        earlyComingStr: earlyComingMins > 0 ? formatMinsToHHMM(earlyComingMins) : null,
+        lateComingStr: (lateComingMins > 0 || existingRec?.status === 'late') ? (lateComingMins > 0 ? formatMinsToHHMM(lateComingMins) : 'Late') : null,
+        excessStayStr: excessStayMins > 0 ? formatMinsToHHMM(excessStayMins) : null,
+        shortfallStr: shortfallMins > 0 ? formatMinsToHHMM(shortfallMins) : null,
+        effectiveMins,
+        earlyComingMins,
+        lateComingMins,
+        excessStayMins,
+        shortfallMins,
+        hasValidation: Boolean(existingRec?.faceVerified || existingRec?.clockOut),
+      };
+    });
+  }, [selectedYear, selectedMonth, userLogs, roster, holidays, leaves, currentUser, assignedShift, daysInSelectedMonthCount]);
+
+  const calendarWeeks = useMemo(() => {
+    const padBefore = firstDayOfWeek; // 0: Sun, 1: Mon, ..., 6: Sat
+    const cells: ((typeof monthDaysList)[0] | null)[] = [];
+
+    for (let i = 0; i < padBefore; i++) {
+      cells.push(null);
+    }
+    for (const dayItem of monthDaysList) {
+      cells.push(dayItem);
+    }
+    while (cells.length % 7 !== 0) {
+      cells.push(null);
     }
 
-    return { day: dayNum, status, otHours };
-  });
+    const weeks: ((typeof monthDaysList)[0] | null)[][] = [];
+    for (let i = 0; i < cells.length; i += 7) {
+      weeks.push(cells.slice(i, i + 7));
+    }
+    return weeks;
+  }, [firstDayOfWeek, monthDaysList]);
 
-  const presentDaysCount = daysInMonth.filter((d) => d.status === 'present').length;
-  const standardWorkingHours = presentDaysCount * 8;
-  const totalOtHours = daysInMonth.reduce((sum, d) => sum + d.otHours, 0);
-  const basicSalary = currentUser?.basic || 45000;
-  const hourlyRate = (basicSalary / 180) * 1.5;
-  const otTotalBonusPay = totalOtHours * hourlyRate;
+  const monthlyMetrics = useMemo(() => {
+    let totalExcessMins = 0, totalShortfallMins = 0, presentCount = 0, totalOtHours = 0;
+    monthDaysList.forEach((d) => {
+      totalExcessMins += d.excessStayMins;
+      totalShortfallMins += d.shortfallMins;
+      if (d.existingRec?.status === 'present' || d.effectiveMins > 0) presentCount += 1;
+      if (d.excessStayMins > 0) totalOtHours += d.excessStayMins / 60;
+    });
+    const formatDuration = (m: number) => {
+      const absM = Math.abs(m);
+      const str = `${String(Math.floor(absM / 60)).padStart(2, '0')}:${String(absM % 60).padStart(2, '0')}`;
+      return m < 0 ? `-${str}` : str;
+    };
+    return { excessStay: formatDuration(totalExcessMins), shortfall: formatDuration(totalShortfallMins), difference: formatDuration(totalExcessMins - totalShortfallMins), presentCount, totalOtHours: Math.round(totalOtHours * 10) / 10 };
+  }, [monthDaysList]);
+
+  const userApprovedLeaves = useMemo(() => {
+    return (leaves || []).filter(
+      (l: any) =>
+        (l.employeeId === currentUser?.id || l.employeeName === currentUser?.name) &&
+        l.status === 'Approved'
+    );
+  }, [leaves, currentUser]);
+
+  // Dynamic Leave Types from company settings (backend config)
+  const configuredLeaveTypes = useMemo(() => {
+    const rawTypes: any[] = companyConfig?.leaveTypes || [];
+    const filtered = rawTypes.filter(
+      (lt: any) =>
+        !lt.name?.toLowerCase().includes('permission') &&
+        !lt.name?.toLowerCase().includes('short')
+    );
+    if (filtered.length > 0) return filtered;
+    return [
+      { id: 'cl', name: 'Casual Leave', days: 12, paid: true },
+      { id: 'sl', name: 'Sick Leave', days: 8, paid: true },
+      { id: 'el', name: 'Earned Leave', days: 15, paid: true },
+    ];
+  }, [companyConfig]);
+
+  // Dynamic leave balances from backend settings & approved leave records
+  const dynamicLeaveRows = useMemo(() => {
+    const rows = configuredLeaveTypes.map((lt: any) => {
+      const opening = typeof lt.days === 'number' ? lt.days : (parseFloat(lt.days) || 0);
+      const credit = typeof lt.credit === 'number' ? lt.credit : 0;
+      const used = userApprovedLeaves
+        .filter((l: any) => {
+          const lType = (l.type || '').toLowerCase();
+          const targetName = (lt.name || '').toLowerCase();
+          const targetId = (lt.id || '').toLowerCase();
+          return lType.includes(targetName) || lType === targetId;
+        })
+        .reduce((sum: number, l: any) => sum + (parseFloat(l.days) || 1), 0);
+      const balance = Math.max(0, opening + credit - used);
+      return {
+        id: lt.id,
+        name: lt.name,
+        opening,
+        credit,
+        used,
+        balance,
+      };
+    });
+
+    const usedLOP = userApprovedLeaves
+      .filter((l: any) => (l.type || '').toLowerCase().includes('loss') || (l.type || '').toLowerCase().includes('lop'))
+      .reduce((sum: number, l: any) => sum + (parseFloat(l.days) || 1), 0);
+
+    if (usedLOP > 0 || !rows.some((r) => r.name.toLowerCase().includes('loss'))) {
+      rows.push({
+        id: 'lop',
+        name: 'Loss of Pay (LOP)',
+        opening: 0,
+        credit: 0,
+        used: usedLOP,
+        balance: 0,
+      });
+    }
+
+    return rows;
+  }, [configuredLeaveTypes, userApprovedLeaves]);
+
+  // Dynamic Permission Types from company settings (backend config)
+  const configuredPermissionTypes = useMemo(() => {
+    const permTypes: any[] = (companyConfig as any)?.permissionTypes || [];
+    if (permTypes.length > 0) return permTypes;
+    const leavePerm = (companyConfig as any)?.leaveTypes?.find((lt: any) =>
+      lt.name?.toLowerCase().includes('permission')
+    );
+    if (leavePerm) {
+      return [
+        {
+          id: leavePerm.id || 'perm-std',
+          name: leavePerm.name || 'Standard Permission',
+          maxHours: leavePerm.permissionHours || 2,
+          period: leavePerm.permissionPeriod || 'month',
+          maxRequestsPerMonth: 2,
+          paid: true,
+        },
+      ];
+    }
+    return [
+      {
+        id: 'perm-std',
+        name: 'Standard Permission',
+        maxHours: 2,
+        period: 'month',
+        maxRequestsPerMonth: 2,
+        paid: true,
+      },
+    ];
+  }, [companyConfig]);
+
+  // Compute permission metrics for the selected month / active period
+  const dynamicPermissionRows = useMemo(() => {
+    const permLeaves = userApprovedLeaves.filter((l: any) => {
+      const type = (l.type || '').toLowerCase();
+      if (!type.includes('permission')) return false;
+      const refDate = l.startDate || l.endDate;
+      if (!refDate) return true;
+      const d = new Date(refDate);
+      return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
+    });
+
+    return configuredPermissionTypes.map((pt: any) => {
+      const maxHours = pt.maxHours ?? 2;
+      const maxRequests = pt.maxRequestsPerMonth ?? 2;
+
+      const usedHours = permLeaves.reduce((sum: number, l: any) => {
+        const val = parseFloat(l.days) || 1;
+        return sum + val;
+      }, 0);
+      const usedRequests = permLeaves.length;
+      const balanceHours = Math.max(0, maxHours - usedHours);
+      const balanceRequests = Math.max(0, maxRequests - usedRequests);
+
+      return {
+        id: pt.id,
+        name: pt.name || 'Standard Permission',
+        maxHours,
+        maxRequests,
+        usedHours,
+        usedRequests,
+        balanceHours,
+        balanceRequests,
+      };
+    });
+  }, [configuredPermissionTypes, userApprovedLeaves, selectedYear, selectedMonth]);
+
+  const handleQuickApplySubmit = async () => {
+    if (!applyModalType) return;
+    setApplyLoading(true);
+    try {
+      const ok = await applyLeave({
+        type: applyModalType === 'leave' ? applyForm.category : 'Permission',
+        startDate: applyModalType === 'permission' ? applyForm.permDate : applyForm.startDate,
+        endDate: applyModalType === 'permission' ? applyForm.permDate : applyForm.endDate,
+        days: applyModalType === 'permission' ? `${applyForm.permHours}h` : applyForm.days,
+        reason: applyForm.reason || 'Requested from Attendance Calendar',
+        status: 'Pending',
+      });
+      if (ok) {
+        Alert.alert('Submitted', 'Request submitted for approval.');
+        setApplyModalType(null);
+        refreshData();
+      } else {
+        Alert.alert('Failed', 'Submission failed.');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.message);
+    } finally {
+      setApplyLoading(false);
+    }
+  };
+
+  const otTotalBonusPay = monthlyMetrics.totalOtHours * ((currentUser?.basic || 45000) / 180) * 1.5;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      {/* Sub Tab Bar */}
       <View style={[styles.tabToggleRow, { backgroundColor: theme.inputBg }]}>
-        <TouchableOpacity
-          style={[styles.subTab, activeTab === 'punch' && { backgroundColor: theme.primary }]}
-          onPress={() => setActiveTab('punch')}
-        >
-          <Text style={[styles.subTabText, { color: theme.textMuted }, activeTab === 'punch' && { color: '#ffffff' }]}>
-            Face Punch
-          </Text>
+        <TouchableOpacity style={[styles.subTab, activeTab === 'punch' && { backgroundColor: theme.primary }]} onPress={() => setActiveTab('punch')}>
+          <Text style={[styles.subTabText, { color: theme.textMuted }, activeTab === 'punch' && { color: '#ffffff' }]}>Face Punch</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.subTab, activeTab === 'calendar' && { backgroundColor: theme.primary }]}
-          onPress={() => setActiveTab('calendar')}
-        >
-          <Text style={[styles.subTabText, { color: theme.textMuted }, activeTab === 'calendar' && { color: '#ffffff' }]}>
-            Calendar & Overtime
-          </Text>
+        <TouchableOpacity style={[styles.subTab, activeTab === 'calendar' && { backgroundColor: theme.primary }]} onPress={() => setActiveTab('calendar')}>
+          <Text style={[styles.subTabText, { color: theme.textMuted }, activeTab === 'calendar' && { color: '#ffffff' }]}>Calendar & Overtime</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.primary]} tintColor={theme.primary} />
-        }
-      >
+      <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.primary]} tintColor={theme.primary} />}>
         {activeTab === 'punch' ? (
           <View>
-            {/* Live Clock Card */}
             <View style={[styles.clockCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
               <Text style={[styles.clockTime, { color: theme.textPrimary }]}>{currentTime}</Text>
-              <Text style={[styles.clockDate, { color: theme.textMuted }]}>
-                {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-              </Text>
-              <View style={[styles.geofenceChip, { backgroundColor: currentUser?.geofencingEnabled === false ? theme.accentSoft : theme.tealSoft }]}>
-                <Icon name="location" size={12} color={currentUser?.geofencingEnabled === false ? theme.accent : theme.primary} />
-                <Text style={[styles.geofenceText, { color: currentUser?.geofencingEnabled === false ? theme.accent : theme.primary }]}>
-                  {currentUser?.geofencingEnabled === false
-                    ? '⚡ Facial Verification Only (Geofence Exempted)'
-                    : `🏢 Branch: ${branchName} • Range: ${branchRadius}m`}
-                </Text>
-              </View>
-
-              {/* Punctuality / Grace Status Badge */}
-              <View style={[styles.geofenceChip, {
-                marginTop: 6,
-                backgroundColor: !punctualityStatus.isAllowed
-                  ? theme.dangerSoft
-                  : punctualityStatus.isAfternoonSession
-                    ? theme.accentSoft
-                    : theme.tealSoft
-              }]}>
-                <Icon
-                  name="clock"
-                  size={12}
-                  color={!punctualityStatus.isAllowed ? theme.danger : punctualityStatus.isAfternoonSession ? theme.accent : theme.primary}
-                />
-                <Text style={[styles.geofenceText, {
-                  color: !punctualityStatus.isAllowed ? theme.danger : punctualityStatus.isAfternoonSession ? theme.accent : theme.primary,
-                  fontWeight: '700'
-                }]}>
-                  {graceTimeSetting === 'always'
-                    ? `🕒 Shift: ${shiftStartStr} • Flexible Grace (Always)`
-                    : !punctualityStatus.isAllowed
-                      ? `⚠️ ${punctualityStatus.message}`
-                      : punctualityStatus.isAfternoonSession
-                        ? `🌓 Afternoon Half-Day Login Active (Morning Absent)`
-                        : `⏰ Shift: ${shiftStartStr} • Grace: ${graceTimeSetting}m (${punctualityStatus.message})`}
-                </Text>
+              <Text style={[styles.clockDate, { color: theme.textMuted }]}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</Text>
+              <View style={[styles.geofenceChip, { backgroundColor: theme.tealSoft }]}>
+                <Icon name="location" size={12} color={theme.primary} />
+                <Text style={[styles.geofenceText, { color: theme.primary }]}>🏢 Branch: {branchName} • Range: {branchRadius}m</Text>
               </View>
             </View>
 
-            {/* Attendance Locked Warning Banner if grace period exceeded */}
-            {!punctualityStatus.isAllowed && (
-              <View style={{
-                backgroundColor: theme.dangerSoft,
-                borderColor: theme.danger,
-                borderWidth: 1,
-                borderRadius: 14,
-                padding: 12,
-                marginBottom: 12,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 10,
-              }}>
-                <Icon name="clock" size={20} color={theme.danger} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.danger, fontWeight: '800', fontSize: 13 }}>
-                    Morning Attendance Locked (Marked Absent)
-                  </Text>
-                  <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, lineHeight: 15 }}>
-                    {punctualityStatus.message}
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {/* Afternoon Half Day Notice */}
-            {punctualityStatus.isAfternoonSession && !isClockedIn && (
-              <View style={{
-                backgroundColor: theme.accentSoft,
-                borderColor: theme.accent,
-                borderWidth: 1,
-                borderRadius: 14,
-                padding: 12,
-                marginBottom: 12,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 10,
-              }}>
-                <Icon name="clock" size={20} color={theme.accent} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.accent, fontWeight: '800', fontSize: 13 }}>
-                    Afternoon Session Active (Half-Day)
-                  </Text>
-                  <Text style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, lineHeight: 15 }}>
-                    Morning grace period was missed. You are now logging in for the afternoon second half.
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {/* Scanner Action Card */}
             <View style={[styles.scannerCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-              <View style={[styles.cameraBox, { borderColor: theme.primaryLight, backgroundColor: theme.inputBg }]}>
-                <View style={styles.faceGuide}>
-                  <View style={[styles.faceOvalFrame, { borderColor: theme.accent }]}>
-                    <Icon name="camera" size={38} color={theme.primary} />
+              {punctualityStatus.isWeeklyOff && (
+                <View
+                  style={{
+                    backgroundColor: '#fef3c7',
+                    borderColor: '#f59e0b',
+                    borderWidth: 1,
+                    borderRadius: 14,
+                    padding: 14,
+                    marginBottom: 14,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 19,
+                      backgroundColor: '#fde68a',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Icon name="coffee" size={20} color="#d97706" />
                   </View>
-                  <Text style={[styles.empTagText, { color: theme.primary }]}>
-                    Employee: {currentUser?.name || 'Employee'} ({currentUser?.empCode || 'SW001'})
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#92400e' }}>
+                      Swift Roster: Weekly Off
+                    </Text>
+                    <Text style={{ fontSize: 11, color: '#b45309', marginTop: 2, lineHeight: 16 }}>
+                      Today is assigned as your Weekly Off in the Swift Roster. Attendance punch-in is restricted as per company policy.
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Biometric Face Enrollment Status / Quick Action Pill */}
+              <TouchableOpacity
+                style={[
+                  styles.faceEnrollPill,
+                  {
+                    backgroundColor: isFaceEnrolled
+                      ? (theme.isDark ? 'rgba(16, 185, 129, 0.12)' : '#f0fdf4')
+                      : (theme.isDark ? 'rgba(239, 68, 68, 0.12)' : '#fef2f2'),
+                    borderColor: isFaceEnrolled
+                      ? (theme.isDark ? 'rgba(16, 185, 129, 0.35)' : '#86efac')
+                      : (theme.isDark ? 'rgba(239, 68, 68, 0.35)' : '#fca5a5'),
+                  },
+                ]}
+                onPress={() => setFaceModalVisible(true)}
+                activeOpacity={0.8}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                  <View
+                    style={[
+                      styles.pillIconBadge,
+                      {
+                        backgroundColor: isFaceEnrolled
+                          ? (theme.isDark ? 'rgba(16, 185, 129, 0.25)' : '#dcfce7')
+                          : (theme.isDark ? 'rgba(239, 68, 68, 0.22)' : '#fee2e2'),
+                      },
+                    ]}
+                  >
+                    <Icon name="camera" size={15} color={isFaceEnrolled ? '#16a34a' : '#dc2626'} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.faceEnrollPillTitle, { color: isFaceEnrolled ? (theme.isDark ? '#4ade80' : '#15803d') : (theme.isDark ? '#fca5a5' : '#dc2626') }]}>
+                      {isFaceEnrolled ? 'Biometric Face ID Enrolled ✓' : 'Face Biometrics Pending ⚠️'}
+                    </Text>
+                    <Text style={[styles.faceEnrollPillSub, { color: theme.textMuted }]}>
+                      {isFaceEnrolled ? 'Tap to update or re-enroll selfie' : 'Tap to register your face for 1-tap check-in'}
+                    </Text>
+                  </View>
+                </View>
+                <View
+                  style={[
+                    styles.pillActionArrow,
+                    {
+                      backgroundColor: isFaceEnrolled
+                        ? (theme.isDark ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7')
+                        : (theme.isDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2'),
+                    },
+                  ]}
+                >
+                  <Icon name="chevron-right" size={12} color={isFaceEnrolled ? '#16a34a' : '#dc2626'} />
+                </View>
+              </TouchableOpacity>
+
+              <View style={[styles.cameraBox, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
+                <View style={styles.faceGuide}>
+                  <View style={[styles.faceOvalFrame, { borderColor: theme.primary }]}>
+                    <Icon name="camera" size={32} color={theme.primary} />
+                  </View>
+                  <Text style={[styles.empTagText, { color: theme.textPrimary }]}>{currentUser?.empCode || 'SW001'} • {currentUser?.name || 'Employee'}</Text>
                   <Text style={[styles.scannerStatusText, { color: theme.textMuted }]}>
-                    Biometric Face Check required for Check-In & Check-Out
+                    {isClockedIn
+                      ? '🟢 Shift active. Punch out.'
+                      : punctualityStatus.isWeeklyOff
+                      ? '🏖️ Swift Roster: Today is Weekly Off (Check-in restricted).'
+                      : !punctualityStatus.isAllowed
+                      ? '🔴 Check-in locked.'
+                      : 'Biometric AI face matching ready.'}
                   </Text>
                 </View>
               </View>
-
               <TouchableOpacity
                 style={[
                   styles.actionBtn,
                   {
                     backgroundColor: !punctualityStatus.isAllowed
-                      ? '#64748b'
+                      ? punctualityStatus.isWeeklyOff
+                        ? '#f59e0b20'
+                        : theme.cardBorder
                       : isClockedIn
-                        ? theme.danger
-                        : punctualityStatus.isAfternoonSession
-                          ? theme.accent
-                          : theme.primary,
-                    opacity: !punctualityStatus.isAllowed ? 0.7 : 1,
-                  }
+                      ? theme.danger
+                      : theme.primary,
+                    borderWidth: punctualityStatus.isWeeklyOff ? 1 : 0,
+                    borderColor: punctualityStatus.isWeeklyOff ? '#f59e0b' : 'transparent',
+                  },
                 ]}
-                onPress={openBiometricScanner}
+                onPress={handleOpenScanner}
                 disabled={!punctualityStatus.isAllowed}
-                activeOpacity={0.8}
               >
-                <Icon name={!punctualityStatus.isAllowed ? 'clock' : 'camera'} size={18} color="#ffffff" />
-                <Text style={styles.actionBtnText}>
-                  {!punctualityStatus.isAllowed
-                    ? punctualityStatus.unlocksAt
-                      ? `🚫 Check-In Disabled (Opens at ${punctualityStatus.unlocksAt})`
-                      : '🚫 Check-In Locked for Today (Absent)'
+                <Icon
+                  name={isClockedIn ? 'cross' : punctualityStatus.isWeeklyOff ? 'lock' : 'camera'}
+                  size={18}
+                  color={punctualityStatus.isWeeklyOff ? '#d97706' : '#ffffff'}
+                />
+                <Text
+                  style={[
+                    styles.actionBtnText,
+                    punctualityStatus.isWeeklyOff && { color: '#d97706' },
+                  ]}
+                >
+                  {punctualityStatus.isWeeklyOff
+                    ? 'Check-In Restricted (Weekly Off)'
+                    : !punctualityStatus.isAllowed
+                    ? 'Attendance Locked (Grace Exceeded)'
                     : isClockedIn
-                      ? 'Verify Face & Punch Clock Out'
-                      : punctualityStatus.isAfternoonSession
-                        ? 'Verify Face & Punch Afternoon Check-In'
-                        : 'Verify Face & Punch Clock In'}
+                    ? 'Verify Face to Punch Out'
+                    : 'Verify Face to Punch In'}
                 </Text>
               </TouchableOpacity>
-            </View>
-
-            {/* Geofence Live Map & Location Breakdown */}
-            {(() => {
-              const empLat = userCoords?.lat ?? branchLat;
-              const empLng = userCoords?.lng ?? branchLng;
-              const liveDistanceMeters = getDistanceMeters(empLat, empLng, branchLat, branchLng);
-              const isWithinFence = liveDistanceMeters <= branchRadius || !!assignedBranch?.geofenceDisabled;
-              const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?size=600x300&scale=2&maptype=roadmap&markers=color:blue%7Clabel:U%7C${empLat},${empLng}&markers=color:red%7Clabel:B%7C${branchLat},${branchLng}&key=${GOOGLE_MAPS_API_KEY}`;
-
-              return (
-                <View style={[styles.mapCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-                  <View style={styles.mapHeaderRow}>
-                    <View style={styles.mapHeaderLeft}>
-                      <Icon name="location" size={16} color={theme.primary} />
-                      <Text style={[styles.mapTitle, { color: theme.textPrimary }]}>Geofence Map & Radar</Text>
-                    </View>
-                    <TouchableOpacity style={styles.refreshLocBtn} onPress={loadUserLocation} disabled={locationLoading}>
-                      {locationLoading ? (
-                        <ActivityIndicator size="small" color={theme.primary} />
-                      ) : (
-                        <Text style={[styles.refreshLocText, { color: theme.primary }]}>🔄 Refresh GPS</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Google Static Map View showing Blue (You) & Red (Branch) Pins */}
-                  <View style={styles.mapContainer}>
-                    <Image
-                      source={{ uri: staticMapUrl }}
-                      style={styles.mapImage}
-                      resizeMode="cover"
-                    />
-                    <View style={styles.mapLegendOverlay}>
-                      <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: '#3b82f6' }]} />
-                        <Text style={styles.legendText}>🔵 You (Blue Pin)</Text>
-                      </View>
-                      <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: '#ef4444' }]} />
-                        <Text style={styles.legendText}>🔴 Branch (Red Pin)</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Lat/Lng Breakdown & Distance Meter */}
-                  <View style={styles.locationDetailsBox}>
-                    <View style={styles.locRow}>
-                      <Text style={[styles.locLabel, { color: theme.textMuted }]}>🔵 Device GPS Location:</Text>
-                      <Text style={[styles.locValue, { color: theme.textPrimary }]}>
-                        {userCoords ? `${userCoords.lat.toFixed(5)}, ${userCoords.lng.toFixed(5)}` : 'Fetching GPS...'}
-                      </Text>
-                    </View>
-
-                    <View style={styles.locRow}>
-                      <Text style={[styles.locLabel, { color: theme.textMuted }]}>🔴 Assigned Branch ({branchName}):</Text>
-                      <Text style={[styles.locValue, { color: theme.textPrimary }]}>
-                        {branchLat.toFixed(5)}, {branchLng.toFixed(5)}
-                      </Text>
-                    </View>
-
-                    <View style={[styles.locRow, styles.locRowBorder]}>
-                      <Text style={[styles.locLabel, { color: theme.textMuted }]}>📏 Calculated Distance:</Text>
-                      <Text style={[styles.locValue, { color: isWithinFence ? theme.success : theme.danger, fontWeight: '800' }]}>
-                        {userCoords ? `${(liveDistanceMeters / 1000).toFixed(2)} km (${Math.round(liveDistanceMeters)}m)` : 'Calculating...'}
-                      </Text>
-                    </View>
-
-                    <View style={styles.locRow}>
-                      <Text style={[styles.locLabel, { color: theme.textMuted }]}>🛡️ Allowed Geofence Radius:</Text>
-                      <Text style={[styles.locValue, { color: theme.textPrimary }]}>
-                        {currentUser?.geofencingEnabled === false
-                          ? 'Bypassed (Facial Attendance Only)'
-                          : `${branchRadius}m ${assignedBranch?.geofenceDisabled ? '(Geofence Disabled)' : ''}`}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              );
-            })()}
-
-            {/* Today's Log Timeline */}
-            <Text style={[styles.sectionHeader, { color: theme.textPrimary }]}>Today's Verified Punch Logs</Text>
-            <View style={[styles.timelineCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-              <View style={styles.timelineItem}>
-                <View style={[styles.dot, { backgroundColor: theme.success }]} />
-                <View style={styles.timelineContent}>
-                  <Text style={[styles.timeLabel, { color: theme.textMuted }]}>Clock In Time</Text>
-                  <Text style={[styles.timeVal, { color: theme.textPrimary }]}>
-                    {userLogs[0]?.clockIn || (isClockedIn ? '09:05 AM' : '--:--')}
-                  </Text>
-                  <Text style={[styles.timeMeta, { color: theme.textMuted }]}>
-                    {userLogs[0]?.faceVerified ? '✅ Face Match Verified' : isClockedIn ? '✅ Verified (99.4%)' : 'Pending Check-In'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={[styles.timelineDivider, { backgroundColor: theme.cardBorder }]} />
-
-              <View style={styles.timelineItem}>
-                <View style={[styles.dot, { backgroundColor: theme.warning }]} />
-                <View style={styles.timelineContent}>
-                  <Text style={[styles.timeLabel, { color: theme.textMuted }]}>Clock Out Time</Text>
-                  <Text style={[styles.timeVal, { color: theme.textPrimary }]}>
-                    {userLogs[0]?.clockOut || (!isClockedIn ? '06:00 PM' : 'In Progress...')}
-                  </Text>
-                  <Text style={[styles.timeMeta, { color: theme.textMuted }]}>Target Shift: 9.0 Hours</Text>
-                </View>
-              </View>
             </View>
           </View>
         ) : (
           <View>
-            {/* Calendar Month Header */}
-            <View style={[styles.monthHeader, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-              <TouchableOpacity style={styles.monthNavBtn}>
-                <Icon name="chevron-left" size={18} color={theme.primary} />
-              </TouchableOpacity>
-              <Text style={[styles.monthTitle, { color: theme.textPrimary }]}>August 2026</Text>
-              <TouchableOpacity style={styles.monthNavBtn}>
-                <Icon name="chevron-right" size={18} color={theme.primary} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Attendance Legend */}
-            <View style={styles.legendRow}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: theme.success }]} />
-                <Text style={[styles.legendText, { color: theme.textMuted }]}>Present</Text>
+            {/* Quick Apply Action Row */}
+            <View style={[styles.applyHeaderCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Icon name="sparkles" size={16} color={theme.primary} />
+                <Text style={[styles.applyCardTitle, { color: theme.textPrimary }]}>Quick Apply</Text>
               </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: theme.danger }]} />
-                <Text style={[styles.legendText, { color: theme.textMuted }]}>Absent</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: theme.warning }]} />
-                <Text style={[styles.legendText, { color: theme.textMuted }]}>Late</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: theme.accent }]} />
-                <Text style={[styles.legendText, { color: theme.textMuted }]}>Half-Day</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: theme.cyan }]} />
-                <Text style={[styles.legendText, { color: theme.textMuted }]}>Holiday</Text>
+              <View style={styles.applyActionButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.applyBtn, { backgroundColor: '#3b82f6' }]}
+                  onPress={() => {
+                    setApplyForm((prev) => ({
+                      ...prev,
+                      category: configuredLeaveTypes[0]?.name || 'Casual Leave',
+                    }));
+                    setApplyModalType('leave');
+                  }}
+                >
+                  <Text style={styles.applyBtnText}>Apply Leave</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.applyBtn, { backgroundColor: '#0284c7' }]}
+                  onPress={() => setApplyModalType('permission')}
+                >
+                  <Text style={styles.applyBtnText}>Apply Permission</Text>
+                </TouchableOpacity>
               </View>
             </View>
 
-            {/* Calendar Grid */}
-            <View style={[styles.calendarCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-              <View style={[styles.weekHeaderRow, { borderBottomColor: theme.cardBorder }]}>
-                {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, idx) => (
-                  <Text key={idx} style={[styles.weekHeaderText, { color: theme.textMuted }]}>
-                    {day}
-                  </Text>
+            <View style={[styles.walletMonthHeader, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+              <TouchableOpacity style={styles.monthNavBtn} onPress={handlePrevMonth}><Icon name="chevron-left" size={16} color={theme.primary} /></TouchableOpacity>
+              <TouchableOpacity style={[styles.todayChip, { backgroundColor: theme.inputBg }]} onPress={handleTodayMonth}><Text style={[styles.todayChipText, { color: theme.textPrimary }]}>Today</Text></TouchableOpacity>
+              <Text style={[styles.walletMonthTitle, { color: '#2563eb' }]}>{monthNames[selectedMonth]} {selectedYear}</Text>
+              <TouchableOpacity style={styles.monthNavBtn} onPress={onRefresh}><Icon name="sparkles" size={14} color={theme.primary} /></TouchableOpacity>
+              <TouchableOpacity style={styles.monthNavBtn} onPress={handleNextMonth}><Icon name="chevron-right" size={16} color={theme.primary} /></TouchableOpacity>
+            </View>
+
+            {/* Calendar Month Grid Cards */}
+            <View style={[styles.calendarGridContainer, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+              {/* Aligned Weekday Header Row */}
+              <View style={[styles.weekdayHeaderRow, { backgroundColor: theme.inputBg }]}>
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayName, idx) => (
+                  <View key={idx} style={styles.weekdayCell}>
+                    <Text style={[styles.weekdayCellText, { color: idx === 0 || idx === 6 ? '#ef4444' : theme.textPrimary }]}>
+                      {dayName}
+                    </Text>
+                  </View>
                 ))}
               </View>
-              <View style={styles.daysGrid}>
-                {daysInMonth.map((item) => {
-                  let dotColor = theme.success;
-                  if (item.status === 'absent') dotColor = theme.danger;
-                  if (item.status === 'late') dotColor = theme.warning;
-                  if (item.status === 'halfday') dotColor = theme.accent;
-                  if (item.status === 'holiday') dotColor = theme.cyan;
 
-                  return (
-                    <View key={item.day} style={styles.dayCell}>
-                      <Text style={[styles.dayText, { color: item.status === 'weekend' ? theme.textMuted : theme.textPrimary }]}>
-                        {item.day}
-                      </Text>
-                      {item.status !== 'weekend' && (
-                        <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
-                      )}
-                      {item.otHours > 0 && (
-                        <View style={[styles.otChip, { backgroundColor: theme.accent }]}>
-                          <Text style={styles.otChipText}>+{item.otHours}h</Text>
+              {/* Aligned 7-Day Week Rows */}
+              {calendarWeeks.map((week, wIdx) => (
+                <View key={`week-${wIdx}`} style={styles.calendarWeekRow}>
+                  {week.map((item, dIdx) => {
+                    if (!item) {
+                      return (
+                        <View
+                          key={`pad-${wIdx}-${dIdx}`}
+                          style={[styles.walletDayCard, styles.walletDayCardPad]}
+                        />
+                      );
+                    }
+
+                    const isCurrentDay =
+                      item.day === todayDateNum &&
+                      selectedMonth === todayMonthNum &&
+                      selectedYear === todayYearNum;
+
+                    return (
+                      <TouchableOpacity
+                        key={item.day}
+                        style={[
+                          styles.walletDayCard,
+                          {
+                            borderColor: isCurrentDay ? theme.primary : theme.cardBorder,
+                            borderWidth: isCurrentDay ? 1.5 : 0.5,
+                            backgroundColor: isCurrentDay ? theme.tealSoft : theme.card,
+                          },
+                        ]}
+                        onPress={() => setSelectedDayDetails(item)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.dayCardTopRow}>
+                          <Text style={[styles.dayCardNumText, isCurrentDay && { color: theme.primary, fontWeight: '900' }]}>
+                            {item.day}
+                          </Text>
                         </View>
-                      )}
-                    </View>
-                  );
-                })}
+
+                        <View style={styles.shiftNamePill}>
+                          <Text style={styles.shiftNamePillText} numberOfLines={1}>
+                            {item.shiftName}
+                          </Text>
+                        </View>
+
+                        {item.isWeekoff ? (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#0284c7' }]}>
+                            <Text style={styles.statusBadgePillText}>Weekoff</Text>
+                          </View>
+                        ) : item.holidayEntry ? (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#0891b2' }]}>
+                            <Text style={styles.statusBadgePillText} numberOfLines={1}>
+                              {item.holidayEntry.name}
+                            </Text>
+                          </View>
+                        ) : item.leaveEntry ? (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#e11d48' }]}>
+                            <Text style={styles.statusBadgePillText} numberOfLines={1}>
+                              {item.leaveEntry.type}
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={[styles.timingsPill, { backgroundColor: '#e2e8f0' }]}>
+                            <Text style={styles.timingsPillText} numberOfLines={1}>
+                              {item.timingsStr}
+                            </Text>
+                          </View>
+                        )}
+
+                        {item.effectiveHoursStr && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#4d7c0f' }]}>
+                            <Text style={styles.statusBadgePillText}>
+                              {item.effectiveHoursStr}
+                            </Text>
+                          </View>
+                        )}
+
+                        {item.earlyComingStr && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#0284c7' }]}>
+                            <Text style={styles.statusBadgePillText}>
+                              Early: {item.earlyComingStr}
+                            </Text>
+                          </View>
+                        )}
+
+                        {item.lateComingStr && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#ea580c' }]}>
+                            <Text style={styles.statusBadgePillText}>
+                              Late: {item.lateComingStr}
+                            </Text>
+                          </View>
+                        )}
+
+                        {item.excessStayStr && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#0284c7' }]}>
+                            <Text style={styles.statusBadgePillText}>
+                              Excess: {item.excessStayStr}
+                            </Text>
+                          </View>
+                        )}
+
+                        {item.hasValidation && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#854d0e' }]}>
+                            <Text style={styles.statusBadgePillText}>Validated</Text>
+                          </View>
+                        )}
+
+                        {item.effectiveHoursStr && !item.isWeekoff && !item.leaveEntry && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#15803d' }]}>
+                            <Text style={styles.statusBadgePillText}>Present</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+
+            {/* MONTHLY DETAILS SECTION */}
+            <Text style={[styles.sectionHeader, { color: '#7c3aed', marginTop: 18, marginBottom: 8 }]}>
+              Monthly Details
+            </Text>
+
+            {/* 1. Short Fall Table */}
+            <View style={[styles.detailsCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+              <Text style={[styles.detailsCardSubTitle, { color: theme.textPrimary }]}>Short fall</Text>
+              <View style={[styles.tableHeaderRow, { backgroundColor: theme.inputBg }]}>
+                <Text style={[styles.tableHeaderCell, { flex: 1 }]}>ExcessStay</Text>
+                <Text style={[styles.tableHeaderCell, { flex: 1 }]}>Shortfall</Text>
+                <Text style={[styles.tableHeaderCell, { flex: 1 }]}>Difference</Text>
+              </View>
+              <View style={styles.tableDataRow}>
+                <Text style={[styles.tableDataCell, { flex: 1, color: '#0284c7', fontWeight: '800' }]}>
+                  {monthlyMetrics.excessStay}
+                </Text>
+                <Text style={[styles.tableDataCell, { flex: 1, color: '#ef4444', fontWeight: '800' }]}>
+                  {monthlyMetrics.shortfall}
+                </Text>
+                <Text style={[styles.tableDataCell, { flex: 1, color: '#16a34a', fontWeight: '800' }]}>
+                  {monthlyMetrics.difference}
+                </Text>
               </View>
             </View>
 
-            {/* Overtime Calculation Report */}
-            <Text style={[styles.sectionHeader, { color: theme.textPrimary }]}>Overtime Calculation Report</Text>
+            {/* 2. Leave Quota & Balances Table (Dynamic from Backend Policy Settings) */}
+            <View style={[styles.detailsCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, marginTop: 12 }]}>
+              <Text style={[styles.detailsCardSubTitle, { color: theme.textPrimary }]}>Leave Policy & Balances</Text>
+              <View style={[styles.tableHeaderRow, { backgroundColor: theme.inputBg }]}>
+                <Text style={[styles.tableHeaderCell, { flex: 2, textAlign: 'left' }]}>Leave Type</Text>
+                <Text style={[styles.tableHeaderCell, { flex: 1 }]}>Opening</Text>
+                <Text style={[styles.tableHeaderCell, { flex: 1 }]}>Credit</Text>
+                <Text style={[styles.tableHeaderCell, { flex: 1 }]}>Used</Text>
+                <Text style={[styles.tableHeaderCell, { flex: 1 }]}>Balance</Text>
+              </View>
+              {dynamicLeaveRows.map((row, rIdx) => (
+                <View key={row.id || rIdx} style={[styles.tableDataRow, rIdx % 2 === 1 && { backgroundColor: theme.inputBg }]}>
+                  <Text style={[styles.tableDataCell, { flex: 2, textAlign: 'left', fontWeight: '700' }]}>{row.name}</Text>
+                  <Text style={[styles.tableDataCell, { flex: 1 }]}>{row.opening}</Text>
+                  <Text style={[styles.tableDataCell, { flex: 1 }]}>{row.credit}</Text>
+                  <Text style={[styles.tableDataCell, { flex: 1, color: row.used > 0 ? '#ef4444' : theme.textMuted }]}>{row.used}</Text>
+                  <Text style={[styles.tableDataCell, { flex: 1, fontWeight: '800', color: theme.primary }]}>{row.balance}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* 3. Permission Details Table (Dynamic from Backend Policy Settings) */}
+            <View style={[styles.detailsCard, { backgroundColor: theme.card, borderColor: theme.cardBorder, marginTop: 12 }]}>
+              <Text style={[styles.detailsCardSubTitle, { color: theme.textPrimary }]}>Permission Details</Text>
+              <View style={[styles.tableHeaderRow, { backgroundColor: theme.inputBg }]}>
+                <Text style={[styles.tableHeaderCell, { flex: 2, textAlign: 'left' }]}>Permission Type</Text>
+                <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>Quota</Text>
+                <Text style={[styles.tableHeaderCell, { flex: 1 }]}>Used</Text>
+                <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>Balance</Text>
+              </View>
+              {dynamicPermissionRows.map((row, rIdx) => (
+                <View key={row.id || rIdx} style={[styles.tableDataRow, rIdx % 2 === 1 && { backgroundColor: theme.inputBg }]}>
+                  <Text style={[styles.tableDataCell, { flex: 2, textAlign: 'left', fontWeight: '700' }]}>{row.name}</Text>
+                  <Text style={[styles.tableDataCell, { flex: 1.2 }]}>{row.maxHours}h ({row.maxRequests} req)</Text>
+                  <Text style={[styles.tableDataCell, { flex: 1, color: row.usedHours > 0 ? '#ef4444' : theme.textMuted }]}>{row.usedHours}h ({row.usedRequests})</Text>
+                  <Text style={[styles.tableDataCell, { flex: 1.2, fontWeight: '800', color: theme.primary }]}>{row.balanceHours}h left</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Overtime & Shift Summary Report */}
+            <Text style={[styles.sectionHeader, { color: theme.textPrimary, marginTop: 16 }]}>
+              Overtime Calculation Report
+            </Text>
             <View style={[styles.otReportCard, { backgroundColor: theme.tealSoft, borderColor: theme.primaryLight }]}>
               <View style={styles.otRow}>
-                <Text style={[styles.otLabel, { color: theme.textMuted }]}>Standard Working Hours</Text>
-                <Text style={[styles.otVal, { color: theme.textPrimary }]}>{standardWorkingHours.toFixed(1)} Hours</Text>
+                <Text style={[styles.otLabel, { color: theme.textMuted }]}>Days Present / Shift Standard</Text>
+                <Text style={[styles.otVal, { color: theme.textPrimary }]}>{monthlyMetrics.presentCount} Days ({(monthlyMetrics.presentCount * 8).toFixed(1)} hrs)</Text>
               </View>
               <View style={styles.otRow}>
-                <Text style={[styles.otLabel, { color: theme.textMuted }]}>Overtime Hours Logged</Text>
-                <Text style={[styles.otVal, { color: theme.accent }]}>+{totalOtHours.toFixed(1)} Hours</Text>
+                <Text style={[styles.otLabel, { color: theme.textMuted }]}>Overtime / Excess Stay Hours</Text>
+                <Text style={[styles.otVal, { color: theme.accent }]}>+{monthlyMetrics.totalOtHours.toFixed(1)} Hours</Text>
               </View>
               <View style={styles.otRow}>
                 <Text style={[styles.otLabel, { color: theme.textMuted }]}>Overtime Hourly Rate (1.5x)</Text>
-                <Text style={[styles.otVal, { color: theme.textPrimary }]}>₹{hourlyRate.toFixed(2)} / hr</Text>
+                <Text style={[styles.otVal, { color: theme.textPrimary }]}>₹{((currentUser?.basic || 45000) / 180 * 1.5).toFixed(2)} / hr</Text>
               </View>
 
               <View style={[styles.otDivider, { backgroundColor: theme.cardBorder }]} />
@@ -812,7 +1228,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                 <View>
                   <Text style={[styles.otTotalLabel, { color: theme.textPrimary }]}>Total Overtime Bonus Pay</Text>
                   <Text style={[styles.otTotalSub, { color: theme.textMuted }]}>
-                    Calculated for {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                    Calculated for {monthNames[selectedMonth]} {selectedYear}
                   </Text>
                 </View>
                 <Text style={[styles.otTotalVal, { color: theme.primary }]}>
@@ -824,11 +1240,213 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
         )}
       </ScrollView>
 
+      {/* DAY INSPECTION MODAL */}
+      <Modal visible={Boolean(selectedDayDetails)} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Icon name="calendar" size={18} color={theme.primary} />
+                <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>
+                  Day Details: {selectedDayDetails?.dateStr}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setSelectedDayDetails(null)}>
+                <Icon name="cross" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ marginTop: 10, gap: 8 }}>
+              <View style={styles.modalDetailRow}>
+                <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Shift:</Text>
+                <Text style={[styles.modalDetailValue, { color: theme.textPrimary }]}>{selectedDayDetails?.shiftName}</Text>
+              </View>
+
+              <View style={styles.modalDetailRow}>
+                <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Timings:</Text>
+                <Text style={[styles.modalDetailValue, { color: theme.textPrimary }]}>{selectedDayDetails?.timingsStr}</Text>
+              </View>
+
+              {selectedDayDetails?.effectiveHoursStr && (
+                <View style={styles.modalDetailRow}>
+                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Effective Work Time:</Text>
+                  <Text style={[styles.modalDetailValue, { color: '#16a34a', fontWeight: '800' }]}>{selectedDayDetails?.effectiveHoursStr}</Text>
+                </View>
+              )}
+
+              {selectedDayDetails?.earlyComingStr && (
+                <View style={styles.modalDetailRow}>
+                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Early Arrival:</Text>
+                  <Text style={[styles.modalDetailValue, { color: '#0284c7', fontWeight: '800' }]}>{selectedDayDetails?.earlyComingStr}</Text>
+                </View>
+              )}
+
+              {selectedDayDetails?.lateComingStr && (
+                <View style={styles.modalDetailRow}>
+                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Late Arrival:</Text>
+                  <Text style={[styles.modalDetailValue, { color: '#ea580c', fontWeight: '800' }]}>
+                    ⚠️ Late by {selectedDayDetails?.lateComingStr}
+                  </Text>
+                </View>
+              )}
+
+              {selectedDayDetails?.excessStayStr && (
+                <View style={styles.modalDetailRow}>
+                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Excess Stay / OT:</Text>
+                  <Text style={[styles.modalDetailValue, { color: '#0284c7', fontWeight: '800' }]}>{selectedDayDetails?.excessStayStr}</Text>
+                </View>
+              )}
+
+              {selectedDayDetails?.shortfallStr && (
+                <View style={styles.modalDetailRow}>
+                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Shortfall:</Text>
+                  <Text style={[styles.modalDetailValue, { color: '#ef4444', fontWeight: '800' }]}>{selectedDayDetails?.shortfallStr}</Text>
+                </View>
+              )}
+
+              <View style={styles.modalDetailRow}>
+                <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Verification Status:</Text>
+                <Text style={[styles.modalDetailValue, { color: selectedDayDetails?.hasValidation ? '#16a34a' : theme.textMuted }]}>
+                  {selectedDayDetails?.hasValidation ? '✅ Biometric & Geofence Validated' : 'None / Not Punched'}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.modalScanBtn, { backgroundColor: theme.primary, marginTop: 16 }]}
+              onPress={() => setSelectedDayDetails(null)}
+            >
+              <Text style={styles.modalScanBtnText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* QUICK APPLY MODAL (Leave / Permission) */}
+      <Modal visible={Boolean(applyModalType)} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card, borderColor: theme.cardBorder, maxHeight: '85%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>
+                {applyModalType === 'leave' ? 'Apply Leave' : 'Apply Permission'}
+              </Text>
+              <TouchableOpacity onPress={() => setApplyModalType(null)}>
+                <Icon name="cross" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ gap: 12, marginTop: 10 }}>
+              {applyModalType === 'leave' && (
+                <>
+                  <Text style={[styles.formLabel, { color: theme.textPrimary }]}>Leave Category</Text>
+                  <View style={styles.categoryPillsRow}>
+                    {configuredLeaveTypes.map((lt: any) => (
+                      <TouchableOpacity
+                        key={lt.id || lt.name}
+                        style={[
+                          styles.catPill,
+                          { backgroundColor: theme.inputBg },
+                          applyForm.category === lt.name && { backgroundColor: theme.primary },
+                        ]}
+                        onPress={() => setApplyForm({ ...applyForm, category: lt.name })}
+                      >
+                        <Text style={[styles.catPillText, { color: applyForm.category === lt.name ? '#ffffff' : theme.textPrimary }]}>
+                          {lt.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text style={[styles.formLabel, { color: theme.textPrimary }]}>Start Date (YYYY-MM-DD)</Text>
+                  <TextInput
+                    style={[styles.formInput, { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder }]}
+                    value={applyForm.startDate}
+                    onChangeText={(t) => setApplyForm({ ...applyForm, startDate: t })}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <Text style={[styles.formLabel, { color: theme.textPrimary }]}>End Date (YYYY-MM-DD)</Text>
+                  <TextInput
+                    style={[styles.formInput, { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder }]}
+                    value={applyForm.endDate}
+                    onChangeText={(t) => setApplyForm({ ...applyForm, endDate: t })}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <Text style={[styles.formLabel, { color: theme.textPrimary }]}>Days</Text>
+                  <TextInput
+                    style={[styles.formInput, { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder }]}
+                    value={applyForm.days}
+                    onChangeText={(t) => setApplyForm({ ...applyForm, days: t })}
+                    keyboardType="numeric"
+                  />
+                </>
+              )}
+
+              {applyModalType === 'permission' && (
+                <>
+                  <Text style={[styles.formLabel, { color: theme.textPrimary }]}>Permission Date (YYYY-MM-DD)</Text>
+                  <TextInput
+                    style={[styles.formInput, { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder }]}
+                    value={applyForm.permDate}
+                    onChangeText={(t) => setApplyForm({ ...applyForm, permDate: t })}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <Text style={[styles.formLabel, { color: theme.textPrimary }]}>Duration (Hours)</Text>
+                  <View style={styles.categoryPillsRow}>
+                    {['1', '1.5', '2'].map((hr) => (
+                      <TouchableOpacity
+                        key={hr}
+                        style={[
+                          styles.catPill,
+                          { backgroundColor: theme.inputBg },
+                          applyForm.permHours === hr && { backgroundColor: theme.primary },
+                        ]}
+                        onPress={() => setApplyForm({ ...applyForm, permHours: hr })}
+                      >
+                        <Text style={[styles.catPillText, { color: applyForm.permHours === hr ? '#ffffff' : theme.textPrimary }]}>
+                          {hr} Hr
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
+
+              <Text style={[styles.formLabel, { color: theme.textPrimary }]}>Reason / Remarks</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder, height: 60 }]}
+                value={applyForm.reason}
+                onChangeText={(t) => setApplyForm({ ...applyForm, reason: t })}
+                placeholder="Reason for application"
+                placeholderTextColor={theme.textMuted}
+                multiline
+              />
+
+              <TouchableOpacity
+                style={[styles.modalScanBtn, { backgroundColor: theme.primary, marginTop: 10 }]}
+                onPress={handleQuickApplySubmit}
+                disabled={applyLoading}
+              >
+                {applyLoading ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.modalScanBtnText}>Submit Application</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* BIOMETRIC FACE SCANNER MODAL */}
       <Modal visible={scannerModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            {/* Modal Header */}
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Icon name="camera" size={20} color={theme.primary} />
@@ -843,27 +1461,17 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
               Emp ID: <Text style={{ fontWeight: '800', color: theme.primary }}>{currentUser?.empCode || 'SW001'}</Text> • {currentUser?.name || 'Employee'}
             </Text>
 
-            {/* Viewfinder Box */}
             <View style={[styles.modalCameraBox, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
               {capturedImageUri ? (
-                <Image
-                  source={{ uri: capturedImageUri }}
-                  style={styles.previewImage}
-                  resizeMode="cover"
-                />
+                <Image source={{ uri: capturedImageUri }} style={styles.previewImage} resizeMode="cover" />
               ) : (
                 <View style={[styles.modalFaceOval, { borderColor: scanningStatus === 'failed' ? theme.danger : theme.success }]}>
-                  <Icon
-                    name="camera"
-                    size={46}
-                    color={scanningStatus === 'verifying' ? theme.accent : scanningStatus === 'failed' ? theme.danger : theme.success}
-                  />
+                  <Icon name="camera" size={46} color={scanningStatus === 'verifying' ? theme.accent : scanningStatus === 'failed' ? theme.danger : theme.success} />
                 </View>
               )}
               {scanningStatus === 'verifying' && <View style={[styles.laserBeam, { backgroundColor: theme.accent }]} />}
             </View>
 
-            {/* Verification Status Feedback */}
             {scanningStatus === 'ready' && (
               <Text style={[styles.statusMsg, { color: theme.textMuted }]}>
                 Align face inside the frame and tap 'Start Facial Recognition'
@@ -895,27 +1503,27 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
               </View>
             )}
 
-            {/* Action Buttons */}
             {scanningStatus === 'ready' && (
-              <TouchableOpacity
-                style={[styles.modalScanBtn, { backgroundColor: theme.primary }]}
-                onPress={handleStartBiometricVerification}
-              >
+              <TouchableOpacity style={[styles.modalScanBtn, { backgroundColor: theme.primary }]} onPress={handleStartBiometricVerification}>
                 <Text style={styles.modalScanBtnText}>Start Facial Recognition Check</Text>
               </TouchableOpacity>
             )}
 
             {(scanningStatus === 'success' || scanningStatus === 'failed') && (
-              <TouchableOpacity
-                style={[styles.modalScanBtn, { backgroundColor: scanningStatus === 'success' ? theme.primary : theme.danger }]}
-                onPress={() => setScannerModalVisible(false)}
-              >
+              <TouchableOpacity style={[styles.modalScanBtn, { backgroundColor: scanningStatus === 'success' ? theme.primary : theme.danger }]} onPress={() => setScannerModalVisible(false)}>
                 <Text style={styles.modalScanBtnText}>{scanningStatus === 'success' ? 'Done' : 'Close'}</Text>
               </TouchableOpacity>
             )}
           </View>
         </View>
       </Modal>
+
+      {/* Face Biometric Enrollment Modal */}
+      <FaceRegistrationModal
+        visible={faceModalVisible}
+        onClose={() => setFaceModalVisible(false)}
+        theme={theme}
+      />
     </View>
   );
 }
@@ -1083,6 +1691,217 @@ const styles = StyleSheet.create({
   monthTitle: {
     fontSize: 16,
     fontWeight: '800',
+  },
+  applyHeaderCard: {
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  applyCardTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  applyActionButtonsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  applyBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  applyBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  walletMonthHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  todayChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  todayChipText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  walletMonthTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  weekdayHeaderRow: {
+    flexDirection: 'row',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    marginBottom: 4,
+    gap: 3,
+  },
+  weekdayCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekdayCellText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  calendarGridContainer: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 6,
+    marginBottom: 14,
+  },
+  calendarWeekRow: {
+    flexDirection: 'row',
+    gap: 3,
+    marginBottom: 3,
+  },
+  walletDayCard: {
+    flex: 1,
+    minHeight: 84,
+    borderWidth: 0.5,
+    borderRadius: 6,
+    padding: 2,
+    overflow: 'hidden',
+  },
+  walletDayCardPad: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+  },
+  dayCardTopRow: {
+    alignItems: 'flex-end',
+    paddingHorizontal: 2,
+  },
+  dayCardNumText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  shiftNamePill: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 3,
+    paddingHorizontal: 2,
+    paddingVertical: 1,
+    marginBottom: 2,
+  },
+  shiftNamePillText: {
+    fontSize: 7,
+    fontWeight: '700',
+    color: '#334155',
+    textAlign: 'center',
+  },
+  statusBadgePill: {
+    borderRadius: 3,
+    paddingHorizontal: 2,
+    paddingVertical: 1,
+    marginTop: 1,
+  },
+  statusBadgePillText: {
+    color: '#ffffff',
+    fontSize: 6.5,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  timingsPill: {
+    borderRadius: 3,
+    paddingHorizontal: 2,
+    paddingVertical: 1,
+    marginTop: 1,
+  },
+  timingsPillText: {
+    fontSize: 6.5,
+    fontWeight: '700',
+    color: '#1e293b',
+    textAlign: 'center',
+  },
+  detailsCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 10,
+  },
+  detailsCardSubTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  tableHeaderCell: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  tableDataRow: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(156, 163, 175, 0.2)',
+  },
+  tableDataCell: {
+    fontSize: 11,
+    textAlign: 'center',
+  },
+  modalDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(156, 163, 175, 0.2)',
+  },
+  modalDetailLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  modalDetailValue: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  formLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  categoryPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  catPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  catPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  formInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
   },
   legendRow: {
     flexDirection: 'row',
@@ -1376,5 +2195,39 @@ const styles = StyleSheet.create({
   locValue: {
     fontSize: 11,
     fontWeight: '700',
+  },
+  faceEnrollPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    marginBottom: 14,
+    ...SHADOWS.sm,
+  },
+  pillIconBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  faceEnrollPillTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  faceEnrollPillSub: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  pillActionArrow: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
   },
 });

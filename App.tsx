@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, StatusBar, SafeAreaView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, StatusBar, SafeAreaView, Keyboard, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LIGHT_THEME, DARK_THEME, ThemeColors } from './src/theme/colors';
 import { AppProvider, useAppContext, canRoleApproveDocInApp } from './src/context/AppContext';
@@ -19,14 +19,32 @@ import { DocumentsScreen } from './src/screens/DocumentsScreen';
 import { TasksScreen } from './src/screens/TasksScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
+import { GrievanceScreen } from './src/screens/GrievanceScreen';
 
-export type AppNavTab = TabType | 'notifications' | 'holidays' | 'documents' | 'tasks' | 'chat' | 'profile';
+export type AppNavTab = TabType | 'notifications' | 'holidays' | 'documents' | 'tasks' | 'chat' | 'profile' | 'grievance';
 
 function MainAppContent() {
   const [showSplash, setShowSplash] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false); // Light theme default
   const [activeTab, setActiveTab] = useState<AppNavTab>('home');
   const [isSideDrawerOpen, setIsSideDrawerOpen] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setIsKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardVisible(false)
+    );
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const { isLoggedIn, currentUser, companyConfig, login, logout, docRequests, userRole } = useAppContext();
   const theme: ThemeColors = isDarkMode ? DARK_THEME : LIGHT_THEME;
@@ -85,6 +103,8 @@ function MainAppContent() {
         return <TasksScreen theme={theme} />;
       case 'chat':
         return <ChatScreen theme={theme} />;
+      case 'grievance':
+        return <GrievanceScreen theme={theme} />;
       case 'profile':
         return (
           <ProfileScreen
@@ -134,18 +154,20 @@ function MainAppContent() {
       <View style={styles.body}>{renderActiveScreen()}</View>
 
       {/* Bottom Navigation */}
-      <TabBar
-        theme={theme}
-        activeTab={getBottomTab()}
-        onTabChange={(tab) => {
-          if (tab === 'more') {
-            setActiveTab('profile');
-          } else {
-            setActiveTab(tab);
-          }
-        }}
-        leavePendingCount={1}
-      />
+      {(!isKeyboardVisible || activeTab !== 'chat') && (
+        <TabBar
+          theme={theme}
+          activeTab={getBottomTab()}
+          onTabChange={(tab) => {
+            if (tab === 'more') {
+              setActiveTab('profile');
+            } else {
+              setActiveTab(tab);
+            }
+          }}
+          leavePendingCount={1}
+        />
+      )}
 
       {/* Side Panel Drawer */}
       <SideDrawer

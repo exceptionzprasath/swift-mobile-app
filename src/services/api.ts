@@ -1,7 +1,7 @@
 // Single clean ngrok backend URL link
-// export const BACKEND_URL = 'https://f08c-2401-4900-93e0-b41c-e419-5feb-11b4-8bff.ngrok-free.app';
+export const BACKEND_URL = 'https://27ff-2401-4900-ccbf-ccaf-4dbf-b1c-27c5-fb20.ngrok-free.app';
 
-export const BACKEND_URL = 'https://swifthr.shop';
+// export const BACKEND_URL = 'https://swifthr.shop';
 
 
 const FETCH_HEADERS = {
@@ -29,18 +29,37 @@ export async function fetchInitialState(tenantId: string) {
 
 export async function mutateTable(table: string, item: any) {
   try {
+    // Strip raw multi-MB base64 data strings before sending to DynamoDB, while keeping S3 URLs
+    const cleanItem = { ...item };
+    if (cleanItem.photoDataUrl && cleanItem.photoDataUrl.startsWith('data:') && cleanItem.photoDataUrl.length > 2000) {
+      delete cleanItem.photoDataUrl;
+    }
+    if (cleanItem.checkInPhoto && cleanItem.checkInPhoto.startsWith('data:') && cleanItem.checkInPhoto.length > 2000) {
+      delete cleanItem.checkInPhoto;
+    }
+    if (cleanItem.checkOutPhoto && cleanItem.checkOutPhoto.startsWith('data:') && cleanItem.checkOutPhoto.length > 2000) {
+      delete cleanItem.checkOutPhoto;
+    }
+
+    console.log(`[API] mutateTable(${table}) => id=${cleanItem.id}, tenantId=${cleanItem.tenantId}, date=${cleanItem.date}, clockIn=${cleanItem.clockIn}, clockOut=${cleanItem.clockOut}`);
+
     const res = await fetch(`${BACKEND_URL}/api/companies/mutate`, {
       method: 'POST',
       headers: FETCH_HEADERS,
-      body: JSON.stringify({ table, item }),
+      body: JSON.stringify({ table, item: cleanItem }),
     });
-    if (res.ok) {
-      return await res.json();
+
+    const data = await res.json();
+    if (!res.ok) {
+      console.error(`[API] mutateTable(${table}) FAILED: status=${res.status}`, data);
+      return { success: false, error: data?.error || `HTTP ${res.status}` };
     }
+    console.log(`[API] mutateTable(${table}) SUCCESS`);
+    return data;
   } catch (err: any) {
-    console.warn(`[API] Error mutating table ${table}:`, err?.message || err);
+    console.error(`[API] mutateTable(${table}) EXCEPTION:`, err?.message || err);
+    return { success: false, error: err?.message || 'Network error' };
   }
-  return { success: false };
 }
 
 export async function deleteTableItem(table: string, tenantId: string, id: string) {
@@ -75,6 +94,24 @@ export async function uploadFile(tenantId: string, path: string, fileDataUrl: st
   return { success: false, url: fileDataUrl };
 }
 
+export async function registerFace(tenantId: string, employeeId: string, photoDataUrl: string) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/companies/face-register`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify({ tenantId, employeeId, photoDataUrl }),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+    const data = await res.json().catch(() => null);
+    return { success: false, error: data?.error || `HTTP ${res.status}` };
+  } catch (err: any) {
+    console.warn(`[API] Error registering face:`, err?.message || err);
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
 export async function verifyFace(tenantId: string, employeeId: string, photoDataUrl: string) {
   try {
     const res = await fetch(`${BACKEND_URL}/api/companies/face-verify`, {
@@ -90,3 +127,31 @@ export async function verifyFace(tenantId: string, employeeId: string, photoData
   }
   return { success: true, employeeId: employeeId || 'demo-emp-1', similarity: 99.4 };
 }
+
+export async function askSwiftAIChat(messages: Array<{ id?: string | number; sender?: string; role?: string; text?: string; content?: string }>, context: Record<string, any>) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/ai/chat`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify({ messages, context }),
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return { success: true, reply: data.reply };
+    }
+    return {
+      success: false,
+      reply: data.reply || "I'm having trouble getting an answer right now. Please try again shortly!",
+      error: data.error,
+    };
+  } catch (err: any) {
+    console.warn(`[API] Error in askSwiftAIChat:`, err?.message || err);
+    return {
+      success: false,
+      reply: "Network connection error. Please check your connection and try again!",
+      error: err?.message,
+    };
+  }
+}
+

@@ -217,7 +217,7 @@ export function SideDrawer({
         setTimeout(() => setActiveModal('comp_off'), 300);
         break;
       case 'grievance':
-        setTimeout(() => setActiveModal('grievance'), 300);
+        onNavigate('grievance');
         break;
       case 'history':
         setTimeout(() => setActiveModal('history'), 300);
@@ -362,25 +362,34 @@ export function SideDrawer({
 
   const initial = (currentUser?.name || 'User').charAt(0).toUpperCase();
 
-  const menuSections = [
+  type MenuItem = {
+    key: SideDrawerAction;
+    label: string;
+    icon: IconName;
+    color: string;
+    desc: string;
+    isComingSoon?: boolean;
+  };
+
+  const menuSections: { title: string; items: MenuItem[] }[] = [
     {
       title: 'CORE WORKSPACE',
       items: [
-        { key: 'attendance' as SideDrawerAction, label: 'Attendance', icon: 'clock' as IconName, color: '#0284c7', desc: 'Facial punch & timesheets' },
-        { key: 'payroll' as SideDrawerAction, label: 'Payslip', icon: 'payroll' as IconName, color: '#10b981', desc: 'Salary breakdown & slips' },
-        { key: 'leaves' as SideDrawerAction, label: 'Apply Leave', icon: 'calendar' as IconName, color: '#f59e0b', desc: 'Leave & permission balance' },
-        { key: 'documents' as SideDrawerAction, label: 'Documents', icon: 'document' as IconName, color: '#6366f1', desc: 'Letters, KYC & agreements' },
-        { key: 'holidays' as SideDrawerAction, label: 'Leave Calendar', icon: 'holiday' as IconName, color: '#ec4899', desc: 'Official & festive holidays' },
+        { key: 'attendance', label: 'Attendance', icon: 'clock', color: '#0284c7', desc: 'Facial punch & timesheets' },
+        { key: 'payroll', label: 'Payslip', icon: 'payroll', color: '#10b981', desc: 'Salary breakdown & slips' },
+        { key: 'leaves', label: 'Apply Leave', icon: 'calendar', color: '#f59e0b', desc: 'Leave & permission balance' },
+        { key: 'documents', label: 'Documents', icon: 'document', color: '#6366f1', desc: 'Letters, KYC & agreements' },
+        { key: 'holidays', label: 'Leave Calendar', icon: 'holiday', color: '#ec4899', desc: 'Official & festive holidays' },
       ],
     },
     {
       title: 'REQUESTS & SELF-SERVICE',
       items: [
-        { key: 'advance_loan' as SideDrawerAction, label: 'Advance Loan', icon: 'wallet' as IconName, color: '#059669', desc: 'Salary advance & loans' },
-        { key: 'comp_off' as SideDrawerAction, label: 'Compensation Off Request', icon: 'coffee' as IconName, color: '#d97706', desc: 'Weekend & holiday comp-off', isComingSoon: true },
-        { key: 'grievance' as SideDrawerAction, label: 'Grievance Request', icon: 'alert-circle' as IconName, color: '#dc2626', desc: 'Confidential HR redressal', isComingSoon: true },
-        { key: 'history' as SideDrawerAction, label: 'History', icon: 'history' as IconName, color: '#8b5cf6', desc: 'Unified requests timeline', isComingSoon: true },
-        { key: 'relieve' as SideDrawerAction, label: 'Relieve Request', icon: 'logout' as IconName, color: '#e11d48', desc: 'Exit & relieving letter', isComingSoon: true },
+        { key: 'advance_loan', label: 'Advance Loan', icon: 'wallet', color: '#059669', desc: 'Salary advance & loans', isComingSoon: true },
+        { key: 'comp_off', label: 'Compensation Off Request', icon: 'coffee', color: '#d97706', desc: 'Weekend & holiday comp-off', isComingSoon: true },
+        { key: 'grievance', label: 'Grievance Request', icon: 'alert-circle', color: '#dc2626', desc: 'Confidential HR redressal' },
+        { key: 'history', label: 'History', icon: 'history', color: '#8b5cf6', desc: 'Unified requests timeline', isComingSoon: true },
+        { key: 'relieve', label: 'Relieve Request', icon: 'logout', color: '#e11d48', desc: 'Exit & relieving letter', isComingSoon: true },
       ],
     },
   ];

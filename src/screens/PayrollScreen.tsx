@@ -521,6 +521,17 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
 
                 <View style={styles.pdfMetaRow}>
                   <View style={styles.pdfMetaCol}>
+                    <Text style={styles.pdfMetaLabel}>PAN Number</Text>
+                    <Text style={styles.pdfMetaVal}>{currentUser?.panNumber || currentUser?.pan || 'ABCDE1234F'}</Text>
+                  </View>
+                  <View style={styles.pdfMetaCol}>
+                    <Text style={styles.pdfMetaLabel}>PF UAN No</Text>
+                    <Text style={styles.pdfMetaVal}>{(currentUser as any)?.uan || '—'}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.pdfMetaRow}>
+                  <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>Bank Account</Text>
                     <Text style={styles.pdfMetaVal}>{currentUser?.bankAccount || (currentUser?.bankAcc ? `Bank A/C: ${currentUser.bankAcc}` : 'HDFC Bank (A/C: 50100123456789)')}</Text>
                   </View>

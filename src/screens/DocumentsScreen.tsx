@@ -9,7 +9,10 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Image,
+  RefreshControl,
 } from 'react-native';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { ThemeColors } from '../theme/colors';
 import { Icon } from '../components/Icon';
 import {
@@ -117,7 +120,21 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
     deleteEmployeeDocument,
     employees,
     roles,
+    refreshData,
   } = useAppContext();
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshData();
+    } catch (err) {
+      console.warn('DocumentsScreen refresh error:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const [activeTab, setActiveTab] = useState<'onboarding' | 'uploads' | 'approvals'>('onboarding');
 
@@ -130,13 +147,15 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
   const [signingDocReq, setSigningDocReq] = useState<DocRequest | null>(null);
   const [docReqSignatureText, setDocReqSignatureText] = useState('');
 
-  // Modal states for uploading new document
+  // Modal states for uploading new document (supports multiple pages / photos)
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadCategory, setUploadCategory] = useState(KYC_DOC_CATEGORIES[0]);
   const [uploadDocName, setUploadDocName] = useState('');
+  const [attachedFiles, setAttachedFiles] = useState<Array<{ uri: string; dataUrl: string; sizeKb?: string }>>([]);
 
-  // Document preview modal
+  // Document preview modal with multi-page navigation
   const [previewDoc, setPreviewDoc] = useState<EmployeeDocument | null>(null);
+  const [previewPageIndex, setPreviewPageIndex] = useState(0);
 
   // Manager action states
   const [actingDoc, setActingDoc] = useState<{ req: DocRequest; action: 'approve' | 'forward' | 'reject' } | null>(null);
@@ -151,9 +170,14 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
     ...(roles || []).map((r) => r.name).filter((name) => name !== 'General Employee' && name !== userRole?.name),
   ];
 
-  // Employee's signed agreements
-  const signedDocs = currentUser?.signedDocs || {};
-  const uploadedDocs = currentUser?.documentsUploaded || [];
+  // Active employee record synced from employees state or currentUser
+  const activeEmployee = (employees || []).find(
+    (e) => e.id === currentUser?.id || (e.empCode && e.empCode === currentUser?.empCode)
+  ) || currentUser;
+
+  // Employee's signed agreements & uploaded KYC docs
+  const signedDocs = activeEmployee?.signedDocs || currentUser?.signedDocs || {};
+  const uploadedDocs = activeEmployee?.documentsUploaded || currentUser?.documentsUploaded || [];
 
   // Doc requests issued to current employee
   const myIssuedDocs = (docRequests || []).filter(
@@ -234,27 +258,91 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
     }
   };
 
-  // --- Handlers for Uploading KYC Proofs ---
+  // --- Handlers for Uploading Multi-Page KYC Proofs ---
+  const handlePickFromCamera = async () => {
+    try {
+      const res = await launchCamera({
+        mediaType: 'photo',
+        includeBase64: true,
+        quality: 0.8,
+      });
+      if (res.didCancel || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      if (asset.base64) {
+        const dataUrl = `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`;
+        const sizeKb = asset.fileSize ? `${Math.round(asset.fileSize / 1024)} KB` : '';
+        setAttachedFiles((prev) => [...prev, { uri: asset.uri || '', dataUrl, sizeKb }]);
+      }
+      if (!uploadDocName.trim()) {
+        setUploadDocName(`${uploadCategory} - ${currentUser?.name || 'Employee'}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Camera Error', err?.message || 'Could not open device camera.');
+    }
+  };
+
+  const handlePickFromGallery = async () => {
+    try {
+      const res = await launchImageLibrary({
+        mediaType: 'photo',
+        includeBase64: true,
+        quality: 0.8,
+        selectionLimit: 0, // 0 allows selecting multiple images
+      });
+      if (res.didCancel || !res.assets || res.assets.length === 0) return;
+
+      const newFiles = res.assets
+        .filter((asset) => !!asset.base64)
+        .map((asset) => ({
+          uri: asset.uri || '',
+          dataUrl: `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`,
+          sizeKb: asset.fileSize ? `${Math.round(asset.fileSize / 1024)} KB` : '',
+        }));
+
+      setAttachedFiles((prev) => [...prev, ...newFiles]);
+
+      if (!uploadDocName.trim()) {
+        const first = res.assets[0];
+        setUploadDocName(first?.fileName ? first.fileName.replace(/\.[^/.]+$/, '') : `${uploadCategory} - ${currentUser?.name || 'Employee'}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Gallery Error', err?.message || 'Could not access photo library.');
+    }
+  };
+
+  const handleRemoveAttachedFile = (index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
   const handleConfirmUpload = async () => {
+    if (attachedFiles.length === 0) {
+      Alert.alert('Files Required', 'Please attach at least one photo or document page using the camera or gallery.');
+      return;
+    }
+
     const docTitle = uploadDocName.trim() || `${uploadCategory} - ${currentUser?.name || 'Employee'}`;
     setBusy(true);
 
-    // Create standard data URL document attachment
-    const simulatedDataUrl = `data:application/pdf;base64,JVBERi0xLjQKJcTl8uXrp420...${encodeURIComponent(docTitle)}`;
+    const dataUrls = attachedFiles.map((f) => f.dataUrl);
 
     const ok = await uploadEmployeeDocument({
       type: uploadCategory,
       name: docTitle,
-      dataUrl: simulatedDataUrl,
+      dataUrl: dataUrls[0],
+      files: dataUrls,
     });
     setBusy(false);
 
     if (ok) {
-      Alert.alert('Document Uploaded', `"${docTitle}" has been saved and synced with HR Admin.`);
+      Alert.alert(
+        'Document Uploaded Successfully',
+        `"${docTitle}" (${attachedFiles.length} page${attachedFiles.length > 1 ? 's' : ''}) has been saved successfully.`
+      );
       setUploadDocName('');
+      setAttachedFiles([]);
       setUploadModalOpen(false);
     } else {
-      Alert.alert('Upload Failed', 'Could not upload document. Please try again.');
+      Alert.alert('Upload Failed', 'Could not upload document. Please check your connection and try again.');
     }
   };
 
@@ -316,7 +404,18 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.bg }]}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[theme.primary]}
+          tintColor={theme.primary}
+        />
+      }
+    >
       {/* Header */}
       <View style={styles.headerRow}>
         <View>
@@ -898,31 +997,87 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
               placeholderTextColor={theme.textMuted}
             />
 
-            <View style={[styles.fileAttachmentNotice, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-              <Icon name="document" size={18} color={theme.primary} />
+            {/* Document Photo / File Selection (Multi-Page / Multi-Image Support) */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, marginBottom: 6 }}>
+              <Text style={[styles.inputLabel, { color: theme.textPrimary, marginBottom: 0 }]}>
+                Attached Pages / Scans ({attachedFiles.length}):
+              </Text>
+              {attachedFiles.length > 1 && (
+                <Text style={{ fontSize: 11, color: theme.primary, fontWeight: '700' }}>
+                  {attachedFiles.length} Pages Attached
+                </Text>
+              )}
+            </View>
+
+            {attachedFiles.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.attachedScroll}>
+                {attachedFiles.map((file, idx) => (
+                  <View key={idx} style={[styles.attachedThumbCard, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
+                    <Image source={{ uri: file.uri }} style={styles.attachedThumbImg} resizeMode="cover" />
+                    <View style={styles.pageBadge}>
+                      <Text style={styles.pageBadgeText}>Page {idx + 1}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.removeThumbBtn}
+                      onPress={() => handleRemoveAttachedFile(idx)}
+                    >
+                      <Text style={styles.removeThumbBtnText}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            <View style={styles.pickerBtnRow}>
+              <TouchableOpacity
+                style={[styles.pickerBtn, { backgroundColor: theme.inputBg, borderColor: theme.primary }]}
+                onPress={handlePickFromCamera}
+              >
+                <Icon name="camera" size={18} color={theme.primary} />
+                <Text style={[styles.pickerBtnText, { color: theme.primary }]}>
+                  {attachedFiles.length > 0 ? '+ Snap Page' : 'Snap Photo'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.pickerBtn, { backgroundColor: theme.inputBg, borderColor: theme.cyan }]}
+                onPress={handlePickFromGallery}
+              >
+                <Icon name="document" size={18} color={theme.cyan} />
+                <Text style={[styles.pickerBtnText, { color: theme.cyan }]}>
+                  {attachedFiles.length > 0 ? '+ Add Gallery' : 'Pick Photos (Multi)'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.fileAttachmentNotice, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder, marginTop: 4 }]}>
+              <Icon name="document" size={16} color={theme.primary} />
               <Text style={[styles.fileAttachmentText, { color: theme.textMuted }]}>
-                Format: PDF, JPG, PNG accepted (up to 10MB).
+                Tip: You can attach multiple images (e.g. Aadhaar Front & Back, multi-page marksheet). All pages sync to HR Admin.
               </Text>
             </View>
 
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
                 style={[styles.modalCancelBtn, { borderColor: theme.cardBorder }]}
-                onPress={() => setUploadModalOpen(false)}
+                onPress={() => {
+                  setAttachedFiles([]);
+                  setUploadModalOpen(false);
+                }}
                 disabled={busy}
               >
                 <Text style={[styles.modalCancelText, { color: theme.textMuted }]}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalConfirmBtn, { backgroundColor: theme.primary }]}
+                style={[styles.modalConfirmBtn, { backgroundColor: theme.primary, opacity: attachedFiles.length === 0 ? 0.7 : 1 }]}
                 onPress={handleConfirmUpload}
-                disabled={busy}
+                disabled={busy || attachedFiles.length === 0}
               >
                 {busy ? (
                   <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Text style={styles.modalConfirmText}>Upload &amp; Save</Text>
+                  <Text style={styles.modalConfirmText}>Upload {attachedFiles.length > 1 ? `(${attachedFiles.length} Pages)` : '& Save'}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -931,30 +1086,76 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
       </Modal>
 
       {/* ============================================================ */}
-      {/* MODAL: PREVIEW DOCUMENT */}
+      {/* MODAL: PREVIEW DOCUMENT (WITH MULTI-PAGE NAVIGATION) */}
       {/* ============================================================ */}
       <Modal visible={!!previewDoc} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.cardBorder, maxHeight: '80%' }]}>
+          <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.cardBorder, maxHeight: '88%' }]}>
             <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>{previewDoc?.name}</Text>
             <Text style={[styles.modalSubtitle, { color: theme.textMuted }]}>
               Category: {previewDoc?.type} · Uploaded on {previewDoc?.uploadedAt ? new Date(previewDoc.uploadedAt).toLocaleDateString() : 'N/A'}
             </Text>
 
-            <View style={[styles.docPreviewArea, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-              <Icon name="document" size={48} color={theme.primary} />
-              <Text style={[styles.docPreviewText, { color: theme.textPrimary, marginTop: 8 }]}>
-                {previewDoc?.name}
-              </Text>
-              <Text style={[styles.docPreviewSub, { color: theme.textMuted }]}>
-                {previewDoc?.verified ? '✅ Verified Document' : '⏳ Awaiting HR Verification'}
-              </Text>
-            </View>
+            {(() => {
+              const allPages = (previewDoc?.files && previewDoc.files.length > 0) ? previewDoc.files : (previewDoc?.dataUrl ? [previewDoc.dataUrl] : []);
+              const activeImg = allPages[previewPageIndex] || allPages[0];
+
+              return (
+                <View style={[styles.docPreviewArea, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
+                  {activeImg && (activeImg.startsWith('http') || activeImg.startsWith('data:image')) ? (
+                    <Image
+                      source={{ uri: activeImg }}
+                      style={styles.fullPreviewImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <>
+                      <Icon name="document" size={48} color={theme.primary} />
+                      <Text style={[styles.docPreviewText, { color: theme.textPrimary, marginTop: 8 }]}>
+                        {previewDoc?.name}
+                      </Text>
+                    </>
+                  )}
+
+                  {/* Multi-page Navigation */}
+                  {allPages.length > 1 && (
+                    <View style={styles.pageNavRow}>
+                      <TouchableOpacity
+                        style={[styles.pageNavBtn, { opacity: previewPageIndex === 0 ? 0.3 : 1 }]}
+                        disabled={previewPageIndex === 0}
+                        onPress={() => setPreviewPageIndex((p) => Math.max(0, p - 1))}
+                      >
+                        <Text style={[styles.pageNavBtnText, { color: theme.primary }]}>◀ Prev</Text>
+                      </TouchableOpacity>
+
+                      <Text style={[styles.pageNavCounter, { color: theme.textPrimary }]}>
+                        Page {previewPageIndex + 1} of {allPages.length}
+                      </Text>
+
+                      <TouchableOpacity
+                        style={[styles.pageNavBtn, { opacity: previewPageIndex === allPages.length - 1 ? 0.3 : 1 }]}
+                        disabled={previewPageIndex === allPages.length - 1}
+                        onPress={() => setPreviewPageIndex((p) => Math.min(allPages.length - 1, p + 1))}
+                      >
+                        <Text style={[styles.pageNavBtnText, { color: theme.primary }]}>Next ▶</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  <Text style={[styles.docPreviewSub, { color: theme.textMuted }]}>
+                    {previewDoc?.verified ? '✅ Verified Document by HR Admin' : '⏳ Awaiting HR Admin Verification'}
+                  </Text>
+                </View>
+              );
+            })()}
 
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
                 style={[styles.modalConfirmBtn, { backgroundColor: theme.primary, width: '100%' }]}
-                onPress={() => setPreviewDoc(null)}
+                onPress={() => {
+                  setPreviewPageIndex(0);
+                  setPreviewDoc(null);
+                }}
               >
                 <Text style={styles.modalConfirmText}>Close Preview</Text>
               </TouchableOpacity>
@@ -973,8 +1174,8 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
               {actingDoc?.action === 'approve'
                 ? 'Approve Document'
                 : actingDoc?.action === 'forward'
-                ? 'Approve & Forward to Next Role'
-                : 'Reject Document'}
+                  ? 'Approve & Forward to Next Role'
+                  : 'Reject Document'}
             </Text>
             <Text style={[styles.modalSubtitle, { color: theme.textMuted }]}>
               {actingDoc?.req.letterTitle}
@@ -1015,8 +1216,8 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
               {actingDoc?.action === 'forward'
                 ? 'Forwarding Note / Instructions (Optional):'
                 : actingDoc?.action === 'reject'
-                ? 'Reason for Rejection (Required):'
-                : 'Approval Comment (Optional):'}
+                  ? 'Reason for Rejection (Required):'
+                  : 'Approval Comment (Optional):'}
             </Text>
             <TextInput
               style={[styles.modalInput, { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder }]}
@@ -1026,8 +1227,8 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
                 actingDoc?.action === 'forward'
                   ? 'e.g. Approved and forwarding for executive signoff'
                   : actingDoc?.action === 'approve'
-                  ? 'e.g. Approved and verified'
-                  : 'e.g. Revision needed in salary'
+                    ? 'e.g. Approved and verified'
+                    : 'e.g. Revision needed in salary'
               }
               placeholderTextColor={theme.textMuted}
             />
@@ -1049,8 +1250,8 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
                       actingDoc?.action === 'approve'
                         ? '#10b981'
                         : actingDoc?.action === 'reject'
-                        ? '#ef4444'
-                        : theme.primary,
+                          ? '#ef4444'
+                          : theme.primary,
                   },
                 ]}
                 onPress={handleConfirmAction}
@@ -1063,8 +1264,8 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
                     {actingDoc?.action === 'approve'
                       ? 'Confirm Approval'
                       : actingDoc?.action === 'reject'
-                      ? 'Confirm Rejection'
-                      : 'Forward'}
+                        ? 'Confirm Rejection'
+                        : 'Forward'}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -1590,6 +1791,135 @@ const styles = StyleSheet.create({
   modalConfirmText: {
     color: '#ffffff',
     fontSize: 12,
+    fontWeight: '700',
+  },
+  pickerBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  pickerBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  pickerBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  selectedFileBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  selectedFileThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+  },
+  selectedFileName: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  selectedFileSize: {
+    fontSize: 10.5,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  changeFileBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  changeFileBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  fullPreviewImage: {
+    width: '100%',
+    height: 260,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  attachedScroll: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  attachedThumbCard: {
+    width: 72,
+    height: 80,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginRight: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  attachedThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  pageBadge: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingVertical: 2,
+    alignItems: 'center',
+  },
+  pageBadgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  removeThumbBtn: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(239, 68, 68, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeThumbBtnText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  pageNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  pageNavBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+  pageNavBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  pageNavCounter: {
+    fontSize: 11.5,
     fontWeight: '700',
   },
 });
