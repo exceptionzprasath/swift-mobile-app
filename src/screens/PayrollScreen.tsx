@@ -86,7 +86,7 @@ export function formatInr(amount: number): string {
 }
 
 export function PayrollScreen({ theme }: PayrollScreenProps) {
-  const { currentUser, attendance, payrolls, companyConfig, refreshData } = useAppContext();
+  const { currentUser, attendance, payrolls, companyConfig, requests, refreshData } = useAppContext();
   const [refreshing, setRefreshing] = useState(false);
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
@@ -122,7 +122,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
     );
   }, [payrolls, currentUser, selectedMonthObj]);
 
-  // Calculate real-time payroll computation matching swift-admin-company logic
+  // Calculate real-time payroll computation matching swift-admin-company logic with dynamic Loan EMI
   const payrollComputation = useMemo(() => {
     if (processedPayroll && processedPayroll.computed) {
       return {
@@ -132,7 +132,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
         daysWorked: processedPayroll.daysWorked || 26,
         otHours: processedPayroll.otHours || 0,
         earningsList: processedPayroll.computed.earningsList || [],
-        deductions: processedPayroll.computed.deductions || { employeePF: 0, employeeESI: 0, professionalTax: 0, tds: 0 },
+        deductions: processedPayroll.computed.deductions || { employeePF: 0, employeeESI: 0, professionalTax: 0, tds: 0, loanEmi: 0 },
         isProcessed: true,
       };
     }
@@ -183,7 +183,37 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
     const professionalTax = currentUser?.ptEligible !== false ? (gross > 20000 ? 200 : gross > 15000 ? 150 : 0) : 0;
     const tds = currentUser?.tdsEligible !== false ? Math.round(gross * 0.05) : 0;
 
-    const totalDeductions = employeePF + employeeESI + professionalTax + tds;
+    // Detect approved active Advance Loans for this employee in selected month
+    const activeLoanRequests = (requests || []).filter((r) => {
+      if (r.category !== 'loan' && r.category !== 'advance_loan') return false;
+      const matchesEmp =
+        r.employeeId === currentUser?.id ||
+        (currentUser?.empCode && r.empCode === currentUser.empCode) ||
+        r.employeeName === currentUser?.name;
+      if (!matchesEmp) return false;
+      const isApproved = r.status === 'Approved' || r.status === 'Disbursed';
+      if (!isApproved) return false;
+
+      const startMonth = r.metadata?.startMonth || (r.date ? r.date.slice(0, 7) : (r.createdAt ? r.createdAt.slice(0, 7) : ''));
+      const tenorMonths = r.metadata?.tenorMonths || (r.tenor?.includes('1') ? 1 : r.tenor?.includes('2') ? 2 : r.tenor?.includes('3') ? 3 : r.tenor?.includes('6') ? 6 : 1);
+      if (!startMonth) return true;
+
+      const [sYear, sMonth] = startMonth.split('-').map(Number);
+      const [curYear, curMonth] = selectedMonthObj.key.split('-').map(Number);
+      const startTotalMonths = sYear * 12 + sMonth;
+      const curTotalMonths = curYear * 12 + curMonth;
+      const endTotalMonths = startTotalMonths + tenorMonths - 1;
+
+      return curTotalMonths >= startTotalMonths && curTotalMonths <= endTotalMonths;
+    });
+
+    const loanEmiDeduction = activeLoanRequests.reduce((sum, r) => {
+      const tenorMonths = r.metadata?.tenorMonths || (r.tenor?.includes('1') ? 1 : r.tenor?.includes('2') ? 2 : r.tenor?.includes('3') ? 3 : r.tenor?.includes('6') ? 6 : 1);
+      const emi = r.metadata?.monthlyEmi || Math.round((Number(r.amount) || 0) / tenorMonths);
+      return sum + emi;
+    }, 0);
+
+    const totalDeductions = employeePF + employeeESI + professionalTax + tds + loanEmiDeduction;
     const net = Math.max(0, gross - totalDeductions);
 
     const earningsList = [
@@ -201,6 +231,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
       employeeESI,
       professionalTax,
       tds,
+      loanEmi: loanEmiDeduction,
     };
 
     return {
@@ -213,7 +244,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
       deductions: deductionsObj,
       isProcessed: false,
     };
-  }, [processedPayroll, currentUser, selectedMonthObj, attendance, companyConfig]);
+  }, [processedPayroll, currentUser, selectedMonthObj, attendance, companyConfig, requests]);
 
   // Annual CTC Calculation
   const annualCtcLpa = useMemo(() => {
@@ -366,6 +397,13 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
               <View style={styles.row}>
                 <Text style={[styles.rowLabel, { color: theme.textMuted }]}>Income Tax (TDS)</Text>
                 <Text style={[styles.rowVal, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.tds)}</Text>
+              </View>
+            )}
+
+            {(payrollComputation.deductions as any).loanEmi > 0 && (
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: '#059669', fontWeight: '600' }]}>Advance Salary Loan (EMI)</Text>
+                <Text style={[styles.rowVal, { color: theme.danger, fontWeight: '700' }]}>-{formatInr((payrollComputation.deductions as any).loanEmi)}</Text>
               </View>
             )}
 
@@ -602,6 +640,13 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                     <View style={styles.pdfTableRow}>
                       <Text style={styles.pdfTableLabel}>Income Tax (TDS)</Text>
                       <Text style={[styles.pdfTableAmount, { color: '#e11d48' }]}>-{formatInr(payrollComputation.deductions.tds)}</Text>
+                    </View>
+                  )}
+
+                  {(payrollComputation.deductions as any).loanEmi > 0 && (
+                    <View style={styles.pdfTableRow}>
+                      <Text style={[styles.pdfTableLabel, { color: '#047857', fontWeight: '600' }]}>Advance Salary Loan (EMI)</Text>
+                      <Text style={[styles.pdfTableAmount, { color: '#e11d48', fontWeight: '700' }]}>-{formatInr((payrollComputation.deductions as any).loanEmi)}</Text>
                     </View>
                   )}
 

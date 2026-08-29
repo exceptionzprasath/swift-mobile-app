@@ -37,12 +37,17 @@ export const GrievanceScreen: React.FC<GrievanceScreenProps> = ({ theme }) => {
   const { grievances, applyGrievance, sendGrievanceMessage, refreshData, currentUser, companyConfig } = useAppContext();
 
   const categories = useMemo(() => {
+    const fromWorkflows = (companyConfig?.approvalWorkflows?.grievance || [])
+      .filter((g: any) => g.active !== false)
+      .map((g: any) => g.name);
+    if (fromWorkflows.length > 0) return fromWorkflows;
+
     const dynamic = (companyConfig?.grievanceTypes || [])
       .filter((g: any) => g.active !== false)
       .map((g: any) => g.name);
     if (dynamic.length > 0) return dynamic;
     return DEFAULT_CATEGORIES;
-  }, [companyConfig?.grievanceTypes]);
+  }, [companyConfig?.approvalWorkflows?.grievance, companyConfig?.grievanceTypes]);
 
   const [refreshing, setRefreshing] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);

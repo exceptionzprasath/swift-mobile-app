@@ -20,8 +20,9 @@ import { TasksScreen } from './src/screens/TasksScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { GrievanceScreen } from './src/screens/GrievanceScreen';
+import { RequestsScreen } from './src/screens/RequestsScreen';
 
-export type AppNavTab = TabType | 'notifications' | 'holidays' | 'documents' | 'tasks' | 'chat' | 'profile' | 'grievance';
+export type AppNavTab = TabType | 'notifications' | 'holidays' | 'documents' | 'tasks' | 'chat' | 'profile' | 'grievance' | 'requests';
 
 function MainAppContent() {
   const [showSplash, setShowSplash] = useState(true);
@@ -103,8 +104,10 @@ function MainAppContent() {
         return <TasksScreen theme={theme} />;
       case 'chat':
         return <ChatScreen theme={theme} />;
+      case 'requests':
+        return <RequestsScreen theme={theme} onNavigate={(tab) => setActiveTab(tab)} />;
       case 'grievance':
-        return <GrievanceScreen theme={theme} />;
+        return <RequestsScreen theme={theme} initialCategory="grievance" onNavigate={(tab) => setActiveTab(tab)} />;
       case 'profile':
         return (
           <ProfileScreen

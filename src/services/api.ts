@@ -1,7 +1,7 @@
 // Single clean ngrok backend URL link
-export const BACKEND_URL = 'https://27ff-2401-4900-ccbf-ccaf-4dbf-b1c-27c5-fb20.ngrok-free.app';
+// export const BACKEND_URL = 'https://6e33-2401-4900-93f2-aadc-6812-1fce-6212-c6df.ngrok-free.app';
 
-// export const BACKEND_URL = 'https://swifthr.shop';
+export const BACKEND_URL = 'https://swifthr.shop';
 
 
 const FETCH_HEADERS = {
@@ -153,5 +153,14 @@ export async function askSwiftAIChat(messages: Array<{ id?: string | number; sen
       error: err?.message,
     };
   }
+}
+
+export function getDocumentDownloadUrl(tenantId: string, docId: string, employeeId: string): string {
+  const query = new URLSearchParams({
+    tenantId: tenantId || 'superadmin',
+    docId,
+    employeeId,
+  });
+  return `${BACKEND_URL}/api/documents/download-pdf?${query.toString()}`;
 }
 

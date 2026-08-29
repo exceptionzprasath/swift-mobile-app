@@ -27,6 +27,7 @@ export type SideDrawerAction =
   | 'leaves'
   | 'documents'
   | 'holidays'
+  | 'requests'
   | 'advance_loan'
   | 'comp_off'
   | 'grievance'
@@ -161,28 +162,7 @@ export function SideDrawer({
   const [busy, setBusy] = useState(false);
 
   // Local state for custom requests persisted during session
-  const [customRequests, setCustomRequests] = useState<RequestRecord[]>([
-    {
-      id: 'req-init-1',
-      type: 'Advance Loan',
-      category: 'loan',
-      title: 'Festival Advance Loan',
-      details: 'Repayment over 2 monthly payroll cycles',
-      amountOrDays: '₹20,000',
-      date: 'Aug 10, 2026',
-      status: 'Approved',
-    },
-    {
-      id: 'req-init-2',
-      type: 'Comp-Off Credit',
-      category: 'comp_off',
-      title: 'Independence Day Support Duty',
-      details: 'Weekend release deployment support',
-      amountOrDays: '1 Day Credit',
-      date: 'Aug 15, 2026',
-      status: 'Approved',
-    },
-  ]);
+  const [customRequests, setCustomRequests] = useState<RequestRecord[]>([]);
 
   const handleSelectDrawerItem = (action: SideDrawerAction, itemMeta?: { label: string; isComingSoon?: boolean }) => {
     if (itemMeta?.isComingSoon) {
@@ -210,22 +190,18 @@ export function SideDrawer({
       case 'holidays':
         onNavigate('holidays');
         break;
+      case 'requests':
       case 'advance_loan':
-        setTimeout(() => setActiveModal('advance_loan'), 300);
-        break;
       case 'comp_off':
-        setTimeout(() => setActiveModal('comp_off'), 300);
-        break;
       case 'grievance':
-        onNavigate('grievance');
-        break;
       case 'history':
-        setTimeout(() => setActiveModal('history'), 300);
+        onNavigate('requests');
         break;
       case 'relieve':
         setTimeout(() => setActiveModal('relieve'), 300);
         break;
       default:
+        onNavigate('requests');
         break;
     }
   };
@@ -385,11 +361,7 @@ export function SideDrawer({
     {
       title: 'REQUESTS & SELF-SERVICE',
       items: [
-        { key: 'advance_loan', label: 'Advance Loan', icon: 'wallet', color: '#059669', desc: 'Salary advance & loans', isComingSoon: true },
-        { key: 'comp_off', label: 'Compensation Off Request', icon: 'coffee', color: '#d97706', desc: 'Weekend & holiday comp-off', isComingSoon: true },
-        { key: 'grievance', label: 'Grievance Request', icon: 'alert-circle', color: '#dc2626', desc: 'Confidential HR redressal' },
-        { key: 'history', label: 'History', icon: 'history', color: '#8b5cf6', desc: 'Unified requests timeline', isComingSoon: true },
-        { key: 'relieve', label: 'Relieve Request', icon: 'logout', color: '#e11d48', desc: 'Exit & relieving letter', isComingSoon: true },
+        { key: 'requests', label: 'Requests', icon: 'task', color: '#059669', desc: 'Advance Loan, Comp-Off & Grievance' },
       ],
     },
   ];

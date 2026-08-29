@@ -5,6 +5,30 @@ import { fetchInitialState, mutateTable, verifyFace, registerFace, uploadFile, B
 const AUTH_USER_KEY = '@swift_auth_user';
 const AUTH_TENANT_KEY = '@swift_tenant_id';
 
+export interface FamilyMember {
+  name: string;
+  relation: string;
+  dob?: string;
+  contact?: string;
+  dependent?: boolean;
+}
+
+export interface EducationEntry {
+  level: string;
+  institute: string;
+  year?: string;
+  grade?: string;
+  field?: string;
+}
+
+export interface ExperienceEntry {
+  company: string;
+  role: string;
+  from?: string;
+  to?: string;
+  ctc?: number;
+}
+
 export interface Employee {
   id: string;
   tenantId?: string;
@@ -25,8 +49,13 @@ export interface Employee {
   bankAcc?: string;
   bankAccount?: string;
   bankIfsc?: string;
+  bankName?: string;
+  bankBranch?: string;
+  bankAccountType?: "savings" | "current";
   shiftId?: string;
   shift?: string;
+  shiftStart?: string;
+  shiftEnd?: string;
   branchId?: string;
   branchIds?: string[];
   branch?: string;
@@ -52,6 +81,49 @@ export interface Employee {
   allowHalfDayLogin?: boolean;
   halfDayLoginTime?: string;
   weeklyOff?: string;
+  // Personal Details
+  gender?: "male" | "female" | "other";
+  dob?: string;
+  bloodGroup?: string;
+  maritalStatus?: "single" | "married" | "divorced" | "widowed";
+  nationality?: string;
+  fatherName?: string;
+  motherName?: string;
+  spouseName?: string;
+  about?: string;
+  category?: string;
+  // Contact & Address Details
+  address?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  pincode?: string;
+  currentAddress?: string;
+  permanentSameAsCurrent?: boolean;
+  emergencyName?: string;
+  emergencyRelation?: string;
+  emergencyContact?: string;
+  emergencyPhone2?: string;
+  // Statutory & Compliance
+  uan?: string;
+  esic?: string;
+  pfNumber?: string;
+  ptNumber?: string;
+  passportNumber?: string;
+  drivingLicense?: string;
+  complianceNotes?: string;
+  policeVerification?: boolean;
+  backgroundCheckStatus?: "pending" | "clear" | "flagged";
+  medicalFitness?: boolean;
+  ndaSigned?: boolean;
+  // Arrays & Deep Profiles
+  family?: FamilyMember[];
+  education?: EducationEntry[];
+  experience?: ExperienceEntry[];
+  skills?: string[];
+  languagesKnown?: string[];
   documentsUploaded?: EmployeeDocument[];
   acceptance?: {
     signed: boolean;
@@ -67,6 +139,17 @@ export interface Employee {
     signatureDataUrl?: string;
     acknowledged: boolean;
   }>;
+  aiVerification?: {
+    ranAt?: string;
+    issues?: string[];
+    passed?: boolean;
+  };
+  finalApproval?: {
+    approvedBy?: string;
+    approvedAt?: string;
+    status: "pending" | "approved" | "rejected";
+    comment?: string;
+  };
 }
 
 export interface EmployeeDocument {
@@ -285,6 +368,51 @@ export interface GrievanceTicket {
   updatedAt: string;
 }
 
+export interface UnifiedRequestStepAudit {
+  id: string;
+  level: number;
+  approverId?: string;
+  approverName: string;
+  roleName: string;
+  department?: string;
+  permission?: string;
+  embedSignature?: boolean;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  comment?: string;
+  actionAt?: string;
+}
+
+export interface UnifiedRequestItem {
+  id: string;
+  tenantId?: string;
+  employeeId?: string;
+  employeeName?: string;
+  empCode?: string;
+  department?: string;
+  category: 'loan' | 'comp_off' | 'grievance' | 'attendance' | 'documents' | string;
+  workflowId?: string;
+  workflowName?: string;
+  type: string;
+  title: string;
+  amount?: number;
+  amountOrDays?: string;
+  tenor?: string;
+  date: string;
+  details: string;
+  reason?: string;
+  notes?: string;
+  status: 'Pending' | 'Approved' | 'Rejected' | 'Under Review' | 'Resolved' | 'Disbursed';
+  priority?: 'Low' | 'Medium' | 'High' | 'Critical';
+  currentLevel?: number;
+  totalLevels?: number;
+  approvalType?: 'sequential' | 'all' | 'any';
+  escalationDays?: number;
+  approvalSteps?: UnifiedRequestStepAudit[];
+  metadata?: any;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface TaskItem {
   id: string;
   tenantId: string;
@@ -326,6 +454,7 @@ export interface AppContextType {
   canApproveLeaves: boolean;
   holidays: any[];
   roster: ShiftAssignment[];
+  requests: UnifiedRequestItem[];
 
   login: (empCodeOrEmail: string, pass: string) => Promise<boolean>;
   logout: () => void;
@@ -335,6 +464,25 @@ export interface AppContextType {
   applyLeave: (request: Omit<LeaveRequest, 'id' | 'tenantId' | 'employeeId' | 'employeeName' | 'createdAt'>) => Promise<boolean>;
   actOnLeave: (leaveId: string, action: 'approve' | 'approve_forward' | 'approve_close' | 'reject' | 'escalate', comment?: string) => Promise<boolean>;
   actOnAttendanceRequest: (requestId: string, action: 'approve' | 'approve_forward' | 'approve_close' | 'reject' | 'escalate', comment?: string) => Promise<boolean>;
+  applyUnifiedRequest: (params: {
+    category: string;
+    workflowId?: string;
+    type?: string;
+    title?: string;
+    amount?: number;
+    amountOrDays?: string;
+    tenor?: string;
+    date?: string;
+    details?: string;
+    reason?: string;
+    notes?: string;
+    metadata?: any;
+  }) => Promise<{ success: boolean; item?: UnifiedRequestItem; error?: string }>;
+  actOnUnifiedRequest: (
+    requestId: string,
+    action: 'approve' | 'approve_forward' | 'approve_close' | 'reject' | 'escalate',
+    comment?: string
+  ) => Promise<boolean>;
   applyGrievance: (ticket: {
     category: string;
     priority: 'Low' | 'Medium' | 'High' | 'Critical';
@@ -350,6 +498,7 @@ export interface AppContextType {
   actOnDocStep: (requestId: string, action: 'approve' | 'reject', comment?: string) => Promise<boolean>;
   forwardDocStep: (requestId: string, toRole: string, comment?: string) => Promise<boolean>;
   acceptDocument: (requestId: string, signatureDataUrl?: string) => Promise<boolean>;
+  requestDocument: (params: { letterKey: string; letterTitle: string; note?: string; approvalChain?: string[] }) => Promise<boolean>;
   uploadEmployeeDocument: (doc: { type: string; name: string; dataUrl?: string; files?: string[] }) => Promise<boolean>;
   signCompanyDocument: (docCode: string, docTitle: string, signatureText: string, signatureDataUrl?: string) => Promise<boolean>;
   deleteEmployeeDocument: (docId: string) => Promise<boolean>;
@@ -373,17 +522,83 @@ const DEFAULT_COMPANY_EMPLOYEES: Employee[] = [
     doj: '2023-04-01',
     joiningDate: '2023-04-01',
     basic: 45000,
+    fixedSalary: 55000,
     pan: 'ABCDE1234F',
     panNumber: 'ABCDE1234F',
     aadhaar: '1234 5678 9012',
     bankAcc: '50100123456789',
     bankAccount: 'HDFC Bank (A/C: 50100123456789)',
     bankIfsc: 'HDFC0001234',
+    bankName: 'HDFC Bank Ltd',
+    bankBranch: 'Anna Nagar, Chennai',
+    bankAccountType: 'savings',
     shiftId: 'gen',
     shift: 'Regular Shift (09:00 AM - 06:00 PM)',
+    shiftStart: '09:00',
+    shiftEnd: '18:00',
+    graceTime: '15',
+    afternoonGraceTime: '15',
+    allowHalfDayLogin: true,
+    halfDayLoginTime: '12:00',
     branch: 'HQ Branch (Chennai)',
     reportingManager: 'Priya Iyer (HR Manager)',
     status: 'active',
+    gender: 'male',
+    dob: '1995-08-15',
+    bloodGroup: 'O+',
+    maritalStatus: 'married',
+    nationality: 'Indian',
+    fatherName: 'Ramesh Sharma',
+    motherName: 'Sunita Sharma',
+    spouseName: 'Meera Sharma',
+    address: 'Flat 402, Green Heights, Anna Nagar, Chennai, Tamil Nadu - 600040',
+    addressLine1: 'Flat 402, Green Heights',
+    addressLine2: '2nd Main Road, Anna Nagar',
+    city: 'Chennai',
+    state: 'Tamil Nadu',
+    country: 'India',
+    pincode: '600040',
+    currentAddress: 'Flat 402, Green Heights, Anna Nagar, Chennai - 600040',
+    permanentSameAsCurrent: true,
+    emergencyName: 'Meera Sharma',
+    emergencyRelation: 'Spouse',
+    emergencyContact: '+91 98765 99880',
+    emergencyPhone2: '+91 98765 11220',
+    uan: '100987654321',
+    esic: '31000987650010001',
+    pfNumber: 'TN/MAS/0012345/000/00012',
+    ptNumber: 'PT-CHE-88765',
+    passportNumber: 'Z8765432',
+    drivingLicense: 'TN-01-20150009876',
+    pfEligible: true,
+    esiEligible: true,
+    ptEligible: true,
+    tdsEligible: true,
+    faceRegistered: true,
+    skills: ['React Native', 'TypeScript', 'Node.js', 'AWS', 'System Architecture', 'CI/CD'],
+    languagesKnown: ['English', 'Tamil', 'Hindi'],
+    education: [
+      { level: 'B.Tech / B.E.', institute: 'Anna University, Chennai', year: '2017', grade: '8.8 CGPA', field: 'Computer Science & Engineering' },
+      { level: 'Higher Secondary (12th)', institute: 'DAV Senior Secondary School', year: '2013', grade: '94%' },
+    ],
+    experience: [
+      { company: 'Cognizant Technology Solutions', role: 'Software Engineer', from: '2017-06', to: '2020-03' },
+      { company: 'Freshworks Inc', role: 'Full Stack Engineer', from: '2020-04', to: '2023-03' },
+    ],
+    family: [
+      { name: 'Meera Sharma', relation: 'Spouse', dob: '1996-05-20', contact: '+91 98765 99880', dependent: true },
+      { name: 'Ramesh Sharma', relation: 'Father', dob: '1962-11-10', dependent: false },
+    ],
+    documentsUploaded: [
+      { id: 'doc-1', type: 'aadhaar', name: 'Aadhaar_Card_Verified.pdf', uploadedAt: '2023-04-01', verified: true },
+      { id: 'doc-2', type: 'pan', name: 'PAN_Card_Signed.pdf', uploadedAt: '2023-04-01', verified: true },
+      { id: 'doc-3', type: 'degree', name: 'BTech_Degree_Certificate.pdf', uploadedAt: '2023-04-01', verified: true },
+      { id: 'doc-4', type: 'nda', name: 'Signed_NDA_and_Code_of_Conduct.pdf', uploadedAt: '2023-04-01', verified: true },
+    ],
+    ndaSigned: true,
+    policeVerification: true,
+    backgroundCheckStatus: 'clear',
+    medicalFitness: true,
   },
 ];
 
@@ -405,6 +620,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [docRequests, setDocRequests] = useState<DocRequest[]>([]);
   const [holidays, setHolidays] = useState<any[]>([]);
   const [roster, setRoster] = useState<ShiftAssignment[]>([]);
+  const [requests, setRequests] = useState<UnifiedRequestItem[]>([]);
   const [chatMessages, setChatMessages] = useState<any[]>([
     { id: 1, sender: 'bot', text: 'Hello! I am SWIFT AI Assistant 🤖. How can I help you with your HR, leave, or payroll questions today?', time: '10:00 AM' },
   ]);
@@ -502,6 +718,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (data?.docRequests) setDocRequests(data.docRequests);
     if (data?.holidays) setHolidays(data.holidays);
     if (data?.roster) setRoster(data.roster);
+    if (data?.requests) setRequests(data.requests);
     setLoading(false);
   };
 
@@ -538,17 +755,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: found.id,
           tenantId: employeeTenantId,
           companyName: realCompanyName,
-          empCode: found.empCode || found.code || found.id || 'SW001',
+          empCode: found.empCode || found.code || found.id || 'EMP',
           name: found.name || 'Employee',
-          email: found.email || 'employee@swift.ai',
-          department: found.department || 'Engineering',
-          designation: found.designation || 'Software Engineer',
-          branch: found.branch || found.address || found.city || 'Head Office',
-          shift: found.shift || 'Regular Shift (09:00 AM - 06:00 PM)',
-          joiningDate: found.joiningDate || found.doj || '2026-07-25',
-          bankAccount: found.bankAccount || (found.bankAcc ? `Bank A/C: ${found.bankAcc}` : 'HDFC Bank (A/C: 50100123456789)'),
-          panNumber: found.panNumber || found.pan || 'ABCDE1234F',
-          basic: found.basic || 25000,
+          email: found.email || '',
+          department: found.department || 'General',
+          designation: found.designation || 'Team Member',
+          branch: found.branch || found.address || found.city,
+          shift: found.shift,
+          joiningDate: found.joiningDate || found.doj,
+          bankAccount: found.bankAccount || (found.bankAcc ? `Bank A/C: ${found.bankAcc}` : (found.bankName ? `${found.bankName}` : undefined)),
+          panNumber: found.panNumber || found.pan,
+          basic: found.basic || 0,
         };
 
         setCurrentUser(authenticatedEmployee);
@@ -655,8 +872,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
     const photoToSave = (faceResult?.url && faceResult.url.startsWith('http')) ? faceResult.url : photoDataUrl;
+
+    // Evaluate punctuality & late status based on roster/shift config
+    const shiftList = companyConfig?.shifts || [];
+    const effectiveShiftId = todayRoster ? todayRoster.shiftId : currentUser?.shiftId;
+    const assignedShift = shiftList.find((s: any) => s.id === effectiveShiftId) || shiftList[0] || { start: '09:00', end: '18:00' };
+    const shiftStartStr = todayRoster?.shiftStart || currentUser?.shiftStart || assignedShift?.start || '09:00';
+    const graceSetting = todayRoster?.graceTime || currentUser?.graceTime || assignedShift?.graceTime || '15';
+    const halfDayLoginTimeStr = todayRoster?.halfDayLoginTime || currentUser?.halfDayLoginTime || assignedShift?.halfDayLoginTime || '12:00';
+
+    const [startH, startM] = shiftStartStr.split(':').map((x: string) => parseInt(x, 10) || 0);
+    const shiftStartMins = startH * 60 + startM;
+    const morningGraceMins = graceSetting === 'always' ? 9999 : (parseInt(graceSetting, 10) || 15);
+    const morningCutoffMins = shiftStartMins + morningGraceMins;
+
+    const [halfH, halfM] = halfDayLoginTimeStr.split(':').map((x: string) => parseInt(x, 10) || 0);
+    const halfDayMins = halfH * 60 + halfM;
+
+    const currentMins = d.getHours() * 60 + d.getMinutes();
+
+    let computedStatus: 'present' | 'absent' | 'late' | 'halfday' | 'holiday' = 'present';
+    let punctualityTag: 'on-time' | 'within-grace' | 'late' | 'half-day' = 'on-time';
+    let lateByMinutes: number | undefined = undefined;
+
+    if (currentMins < halfDayMins) {
+      if (currentMins <= morningCutoffMins) {
+        computedStatus = 'present';
+        punctualityTag = currentMins <= shiftStartMins ? 'on-time' : 'within-grace';
+      } else {
+        computedStatus = 'late';
+        punctualityTag = 'late';
+        lateByMinutes = currentMins - shiftStartMins;
+      }
+    } else {
+      computedStatus = 'halfday';
+      punctualityTag = 'half-day';
+      lateByMinutes = Math.max(0, currentMins - halfDayMins);
+    }
 
     const newRecord: AttendanceRecord = {
       id: `att-${empId}-${localToday}`,
@@ -668,7 +921,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       date: localToday,
       clockIn: timeStr,
       checkIn: timeStr,
-      status: 'present',
+      status: computedStatus,
+      punctuality: punctualityTag,
+      lateBy: lateByMinutes,
       faceVerified: true,
       geofenceVerified: true,
       photoDataUrl: photoToSave || undefined,
@@ -1381,6 +1636,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const requestDocument = async (params: {
+    letterKey: string;
+    letterTitle: string;
+    note?: string;
+    approvalChain?: string[];
+  }): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      const effectiveTenant = tenantId || currentUser.tenantId || 'demo-tenant-1';
+      const res = await fetch(`${BACKEND_URL}/api/documents/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({
+          tenantId: effectiveTenant,
+          letterKey: params.letterKey,
+          letterTitle: params.letterTitle,
+          employeeId: currentUser.id,
+          employeeName: currentUser.name,
+          employeeEmail: currentUser.email || (currentUser as any).workEmail || '',
+          requestedBy: currentUser.name,
+          note: params.note || '',
+          approvalChain: params.approvalChain || ['HR Manager'],
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to submit document request');
+      }
+      await refreshData();
+      return true;
+    } catch (e: any) {
+      console.warn('requestDocument error:', e.message);
+      return false;
+    }
+  };
+
   const acceptDocument = async (requestId: string, signatureDataUrl?: string): Promise<boolean> => {
     if (!currentUser) return false;
     try {
@@ -1526,6 +1817,111 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const hasClockedOut = !!(todayRecord && (todayRecord.clockOut || todayRecord.checkOut));
   const isClockedIn = hasClockedIn && !hasClockedOut;
 
+  const applyUnifiedRequest = async (params: {
+    category: string;
+    workflowId?: string;
+    type?: string;
+    title?: string;
+    amount?: number;
+    amountOrDays?: string;
+    tenor?: string;
+    date?: string;
+    details?: string;
+    reason?: string;
+    notes?: string;
+    metadata?: any;
+  }): Promise<{ success: boolean; item?: UnifiedRequestItem; error?: string }> => {
+    try {
+      const payload = {
+        tenantId,
+        employeeId: currentUser?.id || 'demo-emp-1',
+        employeeName: currentUser?.name || 'Employee',
+        ...params,
+      };
+
+      const res = await fetch(`${BACKEND_URL}/api/requests/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.item) {
+          setRequests((prev) => [data.item, ...prev]);
+          return { success: true, item: data.item };
+        }
+      }
+
+      // Fallback if offline or network error
+      const fallbackItem: UnifiedRequestItem = {
+        id: `${params.category}-${Date.now()}`,
+        tenantId,
+        employeeId: currentUser?.id || 'demo-emp-1',
+        employeeName: currentUser?.name || 'Employee',
+        empCode: currentUser?.empCode || '',
+        department: currentUser?.department || '',
+        category: params.category,
+        workflowId: params.workflowId || params.category,
+        workflowName: params.type || params.category,
+        type: params.type || 'General Request',
+        title: params.title || `${params.type || params.category}: ${params.amountOrDays || ''}`,
+        amount: params.amount,
+        amountOrDays: params.amountOrDays,
+        tenor: params.tenor,
+        date: params.date || new Date().toISOString().slice(0, 10),
+        details: params.details || params.reason || '',
+        reason: params.reason || params.details || '',
+        notes: params.notes,
+        status: 'Pending',
+        currentLevel: 1,
+        totalLevels: 2,
+        approvalType: 'sequential',
+        metadata: params.metadata || {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      setRequests((prev) => [fallbackItem, ...prev]);
+      await mutateTable('requests', fallbackItem);
+      return { success: true, item: fallbackItem };
+    } catch (err: any) {
+      console.warn('[UnifiedRequest Submit] error:', err.message);
+      return { success: false, error: err.message };
+    }
+  };
+
+  const actOnUnifiedRequest = async (
+    requestId: string,
+    action: 'approve' | 'approve_forward' | 'approve_close' | 'reject' | 'escalate',
+    comment?: string
+  ): Promise<boolean> => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/requests/act`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({
+          tenantId,
+          requestId,
+          action,
+          comment: comment || '',
+          actorId: currentUser?.id,
+          actorName: currentUser?.name,
+          actorRole: userRole?.id || userRole?.name || 'Manager',
+        }),
+      });
+
+      if (res.ok) {
+        await refreshData();
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      console.warn('[UnifiedRequest Act] error:', err.message);
+      return false;
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -1552,6 +1948,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         canApproveLeaves,
         holidays,
         roster,
+        requests,
         login,
         logout,
         refreshData,
@@ -1560,6 +1957,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         applyLeave,
         actOnLeave,
         actOnAttendanceRequest,
+        applyUnifiedRequest,
+        actOnUnifiedRequest,
         applyGrievance,
         sendGrievanceMessage,
         updateGrievanceStatus,
@@ -1568,6 +1967,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         actOnDocStep,
         forwardDocStep,
         acceptDocument,
+        requestDocument,
         uploadEmployeeDocument,
         signCompanyDocument,
         deleteEmployeeDocument,

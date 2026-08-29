@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -34,65 +34,409 @@ interface CompanyAgreementItem {
   terms: string;
 }
 
-const DEFAULT_COMPANY_AGREEMENTS: CompanyAgreementItem[] = [
+export function formatDocumentTerms(templateText: string, user: any, config: any): string {
+  if (!templateText) return '';
+
+  const compName = user?.companyName || config?.companyName || config?.name || config?.legalName || 'Inkpen Erode';
+  const compAddress = config?.address || config?.location || 'Technology Hub, Tamil Nadu, India';
+  const branchName = user?.branch || config?.branch || (config?.branches?.[0]?.name) || 'Head Office';
+  const todayFormatted = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const joiningDateFormatted = user?.joiningDate || user?.doj || '2026-08-01';
+
+  const annualCtcStr = user?.annualCTC
+    ? (typeof user.annualCTC === 'number' ? `₹${user.annualCTC.toLocaleString()}` : user.annualCTC)
+    : (user?.basic ? `₹${(user.basic * 12).toLocaleString()}` : '₹3,60,000');
+
+  const monthlyGrossStr = user?.gross
+    ? (typeof user.gross === 'number' ? `₹${user.gross.toLocaleString()}` : user.gross)
+    : (user?.basic ? `₹${user.basic.toLocaleString()}` : '₹30,000');
+
+  const managerNameStr = user?.reportingManager || 'Reporting Authority';
+  const empName = user?.name || 'Employee';
+  const empCodeStr = user?.empCode || user?.code || user?.id || 'EMP';
+  const designationStr = user?.designation || 'Team Member';
+  const deptStr = user?.department || 'General';
+  const signatoryNameStr = config?.signatoryName || 'Head of Human Resources & Operations';
+  const signatoryRoleStr = config?.signatoryRole || 'Authorized Signatory';
+
+  let rendered = templateText;
+
+  const replaceMap: Record<string, string> = {
+    '{{employee_name}}': empName,
+    '{{employee_code}}': empCodeStr,
+    '{{name}}': empName,
+    '{{empCode}}': empCodeStr,
+    '{{designation}}': designationStr,
+    '{{department}}': deptStr,
+    '{{branch_name}}': branchName,
+    '{{manager_name}}': managerNameStr,
+    '{{company_name}}': compName,
+    '{{company}}': compName,
+    '{{company_address}}': compAddress,
+    '{{joining_date}}': joiningDateFormatted,
+    '{{doj}}': joiningDateFormatted,
+    '{{current_date}}': todayFormatted,
+    '{{today}}': todayFormatted,
+    '{{probation_months}}': user?.probationMonths ? `${user.probationMonths} Months` : '6 Months',
+    '{{ctc_annual}}': annualCtcStr,
+    '{{annualCTC}}': annualCtcStr,
+    '{{ctc_monthly}}': monthlyGrossStr,
+    '{{gross}}': monthlyGrossStr,
+    '{{authorized_signatory_name}}': signatoryNameStr,
+    '{{authorized_signatory_designation}}': signatoryRoleStr,
+  };
+
+  for (const [placeholder, val] of Object.entries(replaceMap)) {
+    rendered = rendered.split(placeholder).join(val);
+  }
+
+  return rendered;
+}
+
+const DEFAULT_COMPANY_AGREEMENTS: Array<CompanyAgreementItem & { id?: string }> = [
   {
+    id: 'doc-joining',
+    code: 'JOIN',
+    title: 'Joining Form',
+    category: 'Onboarding',
+    description: 'Employee initial candidate registration and onboarding intake details form.',
+    terms: `Date: {{current_date}}
+
+EMPLOYEE JOINING CONFIRMATION & INTAKE
+
+This document acknowledges that {{employee_name}} (Employee Code: {{employee_code}}) has formally reported to duty on {{joining_date}} at {{branch_name}} for the position of {{designation}} under the {{department}} Department.
+
+Reporting Authority: {{manager_name}}
+Annual Compensation: {{ctc_annual}} (Monthly Gross: {{ctc_monthly}})
+
+All mandatory onboarding forms, credentials verification, and initial profile entries have been registered with Human Resources.
+
+Sincerely,
+For {{company_name}}
+
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-offer',
+    code: 'OFR',
+    title: 'Offer Letter',
+    category: 'Onboarding',
+    description: 'Formal pre-joining employment offer letter with compensation breakup.',
+    terms: `Date: {{current_date}}
+
+To,
+{{employee_name}}
+Candidate Code: {{employee_code}}
+
+Dear {{employee_name}},
+
+Subject: Offer of Employment for the position of {{designation}}
+
+We are pleased to offer you the position of {{designation}} in the {{department}} Department at {{company_name}}.
+
+Key Terms of Offer:
+1. Position: {{designation}}
+2. Department: {{department}}
+3. Location: {{branch_name}}
+4. Date of Joining: {{joining_date}}
+5. Annual Total Cost to Company (CTC): {{ctc_annual}} (Fixed Gross Monthly: {{ctc_monthly}})
+6. Reporting Authority: {{manager_name}}
+7. Probation Period: {{probation_months}} from the date of joining.
+
+Your formal Appointment Letter containing detailed terms and conditions of employment, benefits, and workplace code of conduct will be issued upon joining.
+
+Please sign and return this letter as a token of your formal acceptance of this offer.
+
+We welcome you to {{company_name}} and look forward to a rewarding professional journey together.
+
+Sincerely,
+For {{company_name}}
+
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-appointment',
     code: 'APT',
-    title: 'Appointment Letter & Terms of Employment',
-    category: 'Employment Contract',
-    description: 'Formal appointment letter governing terms of employment, compensation, and workplace guidelines.',
-    terms: `1. Employment Terms: The employee is appointed in the assigned role and department subject to standard probation and performance reviews.
-2. Duties & Working Hours: The employee agrees to perform assigned duties diligently and abide by company working hours, shift timings, and attendance policies.
-3. Compensation: Remuneration, allowances, statutory deductions (PF, ESI, PT, TDS) are processed as per the company payroll structure.
-4. Confidentiality: The employee shall not disclose proprietary business information, source code, client data, or trade secrets to any third party.
-5. Termination: Either party may terminate employment with required notice period or salary in lieu thereof as per company policy.`,
+    title: 'Appointment Letter',
+    category: 'Onboarding',
+    description: 'Official contract of employment with full employment terms and conditions.',
+    terms: `Date: {{current_date}}
+
+To,
+{{employee_name}}
+Employee Code: {{employee_code}}
+Location: {{branch_name}}
+
+Dear {{employee_name}},
+
+Subject: Letter of Appointment as {{designation}}
+
+With reference to your application, interview, and subsequent offer acceptance, management is pleased to appoint you as {{designation}} in {{company_name}}, effective from your date of joining on {{joining_date}}.
+
+1. Designation & Duties:
+You shall perform duties associated with the role of {{designation}} in the {{department}} Department, reporting directly to {{manager_name}}.
+
+2. Remuneration:
+Your total annual compensation package (CTC) is fixed at {{ctc_annual}} per annum (monthly gross {{ctc_monthly}}), payable on a monthly basis in accordance with standard company payroll practices.
+
+3. Probation & Confirmation:
+You will be on probation for a period of {{probation_months}} from {{joining_date}}. Based on your performance and conduct, your services will be confirmed in writing.
+
+4. Confidentiality & Code of Conduct:
+You shall maintain strict confidentiality regarding all company intellectual property, customer records, and trade secrets during and after your tenure.
+
+5. Termination & Notice Period:
+Either party may terminate employment with the standard contractual notice period or salary in lieu thereof as per company policy.
+
+We wish you all the best and trust you will make meaningful contributions toward the growth of {{company_name}}.
+
+Sincerely,
+For {{company_name}}
+
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}`,
   },
   {
+    id: 'doc-nda',
     code: 'NDA',
-    title: 'Non-Disclosure & Confidentiality Agreement',
-    category: 'Legal & IP',
-    description: 'Agreement protecting company confidential information, intellectual property, and client data.',
-    terms: `1. Scope of Confidential Information: All technical data, trade secrets, software code, customer lists, business plans, and financial details.
-2. Non-Disclosure Obligations: The employee agrees to hold all confidential information in strict trust and not disclose to unauthorized persons.
-3. Return of Materials: Upon departure or request, all physical and electronic documents, devices, and copies must be returned immediately.
-4. Survival: Confidentiality obligations survive termination of employment indefinitely.`,
+    title: 'NDA & Confidentiality Agreement',
+    category: 'Onboarding',
+    description: 'Non-disclosure agreement for intellectual property and confidentiality protection.',
+    terms: `NON-DISCLOSURE & CONFIDENTIALITY AGREEMENT
+
+Date: {{current_date}}
+
+Between:
+{{company_name}}, having its principal place of business at {{company_address}} (the "Company")
+
+And:
+{{employee_name}} (Employee Code: {{employee_code}}), residing as per company personnel records (the "Employee").
+
+1. Confidential Information:
+The Employee agrees that all technical data, customer lists, software code, financials, and trade secrets disclosed by {{company_name}} during their employment as {{designation}} are the exclusive intellectual property of the Company.
+
+2. Non-Disclosure Obligations:
+The Employee shall protect the confidentiality of the Proprietary Information and shall not disclose it to any unauthorized third party without prior written consent from {{company_name}}.
+
+3. Return of Assets:
+Upon departure or request, all physical and electronic documents, devices, and credentials must be returned immediately.
+
+4. Survival of Obligations:
+Confidentiality covenants survive termination of employment indefinitely.
+
+Acknowledged & Signed by:
+{{employee_name}} ({{employee_code}})
+For {{company_name}}`,
   },
   {
+    id: 'doc-code-conduct',
     code: 'COC',
     title: 'Employee Code of Conduct & Workplace Ethics',
-    category: 'Compliance',
-    description: 'Standards of professional behavior, anti-harassment, non-discrimination, and integrity guidelines.',
-    terms: `1. Professional Conduct: Employees must treat colleagues, clients, and partners with dignity, fairness, and mutual respect.
-2. Prevention of Harassment (POSH): Zero tolerance for any form of sexual harassment, discrimination, bullying, or intimidation.
-3. Conflict of Interest: Employees must avoid outside business engagements or personal interests that conflict with company obligations.
-4. Use of Company Assets: Company hardware, software licenses, and accounts must be used for legitimate business purposes only.`,
+    category: 'Onboarding',
+    description: 'Company policy compliance, ethical conduct, and workplace guidelines acknowledgment.',
+    terms: `EMPLOYEE CODE OF CONDUCT & WORKPLACE ETHICS ACKNOWLEDGMENT
+
+Date: {{current_date}}
+
+I, {{employee_name}} (Employee Code: {{employee_code}}), hereby acknowledge that I have received, read, and understood the Employee Code of Conduct and Workplace Ethics Policy of {{company_name}}.
+
+As a {{designation}} in the {{department}} Department, I commit to:
+1. Conducting myself with the highest standards of integrity, respect, and professional behavior.
+2. Adhering strictly to anti-harassment, data privacy, and workplace safety guidelines.
+3. Reporting to duty punctually at {{branch_name}} under the supervision of {{manager_name}}.
+4. Using company assets and systems solely for official business activities.
+
+Employee Signature: _______________________
+Name: {{employee_name}} ({{employee_code}})
+Date: {{current_date}}
+
+Approved & Registered by HR:
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}
+{{company_name}}`,
   },
   {
-    code: 'POL',
-    title: 'Information Security & IT Usage Policy',
-    category: 'IT & Security',
-    description: 'Rules for electronic equipment usage, strong passwords, data protection, and cloud access.',
-    terms: `1. Access Security: Multi-factor authentication (MFA) and strong passwords are required. Sharing passwords is strictly forbidden.
-2. Device Security: Company laptops and mobile devices must remain encrypted and locked when unattended.
-3. Data Protection: Downloading unauthorized software or transferring internal data to unapproved personal storage is prohibited.
-4. Incident Reporting: Any lost device or security breach must be reported immediately to the IT administrator.`,
+    id: 'doc-asset-handover',
+    code: 'ASSET',
+    title: 'Asset Handover Forms',
+    category: 'Onboarding',
+    description: 'Company equipment and hardware handover acknowledgment form.',
+    terms: `COMPANY ASSET & EQUIPMENT HANDOVER ACKNOWLEDGMENT FORM
+
+Date: {{current_date}}
+
+Employee Details:
+- Name: {{employee_name}}
+- Employee Code: {{employee_code}}
+- Designation: {{designation}}
+- Department: {{department}}
+- Work Location: {{branch_name}}
+
+I hereby acknowledge receipt of company-issued equipment (laptop, security badge, official email credentials, and peripherals) in good working condition for official duties with {{company_name}}.
+
+I understand that these assets remain the exclusive property of {{company_name}} and must be returned in good condition upon separation or upon request.
+
+Employee Signature: _______________________
+Name: {{employee_name}}
+Date: {{current_date}}
+
+Issued By (IT / Asset Custodian):
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}
+{{company_name}}`,
+  },
+];
+
+export type CompanyOfficialDocItem = {
+  id: string;
+  code: string;
+  name: string;
+  group: string;
+  category?: string;
+  description: string;
+  allowDownload: boolean;
+  allowEmployeeRequest: boolean;
+  terms: string;
+  approvalChain?: string[];
+};
+
+const DEFAULT_COMPANY_OFFICIAL_DOCS: CompanyOfficialDocItem[] = [
+  {
+    id: 'doc-exp',
+    code: 'EXP',
+    name: 'Work Experience Certificate',
+    group: 'V. Exit / Service Verification',
+    description: 'Certifies service tenure, employment conduct, and role held with the company.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}
+
+EXPERIENCE CERTIFICATE
+
+This is to certify that {{employee_name}} (Employee Code: {{employee_code}}) has served as a full-time employee with {{company_name}} from {{joining_date}} to {{current_date}}.
+
+During their service tenure, {{employee_name}} held the position of {{designation}} in the {{department}} Department.
+
+Their conduct, character, and professional competence were found to be commendable.
+
+For {{company_name}}
+
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}`,
   },
   {
-    code: 'PFR',
-    title: 'EPF / EPS Statutory Declaration (Form 11)',
-    category: 'Statutory Compliance',
-    description: 'Declaration for membership under the Employees Provident Fund & Miscellaneous Provisions Act.',
-    terms: `1. I hereby declare that I agree to contribute to the Employees Provident Fund (EPF) and Pension Scheme (EPS) as applicable by law.
-2. I certify that the Aadhaar and PAN details submitted by me are correct and can be linked for Universal Account Number (UAN) generation.
-3. I understand that previous employer PF transfers or withdrawals must be declared truthfully.`,
+    id: 'doc-salary-cert',
+    code: 'SAL',
+    name: 'Salary & Income Certificate',
+    group: 'VI. Verification',
+    description: 'Formal income verification for bank loans, credit cards, or visa processing.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}
+
+TO WHOMSOEVER IT MAY CONCERN
+
+This is to certify that {{employee_name}} (Employee Code: {{employee_code}}) is employed with {{company_name}} as {{designation}} in {{department}}.
+
+Current Remuneration:
+- Fixed Gross Monthly: {{ctc_monthly}}
+- Total Annual CTC: {{ctc_annual}}
+
+Issued upon request for official verification.
+
+For {{company_name}}
+
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}`,
   },
   {
-    code: 'ESI',
-    title: 'ESIC Medical Benefit Joining Declaration',
-    category: 'Statutory Benefits',
-    description: 'Declaration for health and medical benefit insurance under Employees State Insurance Corporation.',
-    terms: `1. I hereby declare that I agree to enroll under the Employees State Insurance (ESI) scheme as per statutory wage eligibility.
-2. Details of dependent family members provided during registration are accurate for ESI biometric e-Pehchan card issuance.
-3. I undertake to report any change in family dependents or residential address promptly to HR.`,
+    id: 'doc-relieve',
+    code: 'REL',
+    name: 'Relieving Letter',
+    group: 'V. Exit',
+    description: 'Formal relieving order certifying clearance of company dues and asset handover.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}
+
+RELIEVING LETTER
+
+To,
+{{employee_name}} (Employee Code: {{employee_code}})
+
+This is to certify that you have been formally relieved from services as {{designation}} in {{department}} at {{company_name}} following clearance of all organizational dues.
+
+We wish you success in all future endeavors.
+
+For {{company_name}}
+
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-bonafide',
+    code: 'BON',
+    name: 'Bonafide Employment Certificate',
+    group: 'VI. Verification',
+    description: 'Official proof of active employment for passport, bank, or housing requirements.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}
+
+BONAFIDE CERTIFICATE
+
+This is to certify that {{employee_name}} (Employee Code: {{employee_code}}) is a bonafide, active full-time employee of {{company_name}}, currently working as {{designation}} in {{department}}.
+
+For {{company_name}}
+
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-prob-confirm',
+    code: 'PRB',
+    name: 'Probation Confirmation Letter',
+    group: 'II. Probation',
+    description: 'Official confirmation letter of permanent employment post probation period.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}
+
+To,
+{{employee_name}} (Employee Code: {{employee_code}})
+
+Subject: Confirmation of Employment Services
+
+Consequent to the successful completion of your probation period, management is pleased to confirm your appointment as permanent {{designation}} in {{company_name}}.
+
+Sincerely,
+For {{company_name}}
+
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-visa-noc',
+    code: 'NOC',
+    name: 'Visa Support & No Objection Certificate (NOC)',
+    group: 'VI. Verification',
+    description: 'NOC letter issued for official international travel or visa stamping.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}
+
+NO OBJECTION CERTIFICATE (NOC)
+
+To Whom It May Concern,
+
+This is to certify that {{employee_name}} (Employee Code: {{employee_code}}) is employed as {{designation}} with {{company_name}}. The company has No Objection to their visa application and travel.
+
+For {{company_name}}
+
+{{authorized_signatory_name}}
+{{authorized_signatory_designation}}`,
   },
 ];
 
@@ -109,12 +453,14 @@ const KYC_DOC_CATEGORIES = [
 export function DocumentsScreen({ theme }: DocumentsScreenProps) {
   const {
     currentUser,
+    companyConfig,
     docRequests,
     userRole,
     canApproveDocuments,
     actOnDocStep,
     forwardDocStep,
     acceptDocument,
+    requestDocument,
     signCompanyDocument,
     uploadEmployeeDocument,
     deleteEmployeeDocument,
@@ -136,12 +482,113 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'onboarding' | 'uploads' | 'approvals'>('onboarding');
+  const [activeTab, setActiveTab] = useState<'onboarding' | 'documents' | 'uploads' | 'approvals'>('onboarding');
+  const [docSearchQuery, setDocSearchQuery] = useState('');
+
+  // Dynamically resolve ALL onboarding agreement templates from Approval Settings
+  const companyAgreements: CompanyAgreementItem[] = useMemo(() => {
+    const allDocWorkflows: any[] =
+      companyConfig?.approvalWorkflows?.documents ||
+      companyConfig?.workflows?.documents ||
+      companyConfig?.documentTypes ||
+      [];
+
+    // Extract all workflows belonging to the Onboarding section that are marked active
+    const onboardingWorkflows = allDocWorkflows.filter((w: any) => {
+      // If admin toggled active to false, hide from mobile app
+      if (w.active === false) return false;
+      const g = (w.group || '').toLowerCase();
+      const n = (w.name || '').toLowerCase();
+      const id = (w.id || '').toLowerCase();
+      return (
+        g.includes('onboarding') ||
+        id.includes('joining') ||
+        id.includes('offer') ||
+        id.includes('appointment') ||
+        id.includes('nda') ||
+        id.includes('code-conduct') ||
+        id.includes('asset-handover') ||
+        n.includes('joining') ||
+        n.includes('offer') ||
+        n.includes('appointment') ||
+        n.includes('nda') ||
+        n.includes('conduct') ||
+        n.includes('asset')
+      );
+    });
+
+    if (allDocWorkflows.length > 0) {
+      return onboardingWorkflows.map((w: any) => {
+        const defaultMatch = DEFAULT_COMPANY_AGREEMENTS.find(
+          (d) => d.id === w.id || d.title.toLowerCase() === (w.name || '').toLowerCase()
+        );
+
+        return {
+          code: defaultMatch?.code || (w.id ? w.id.replace('doc-', '').toUpperCase() : 'DOC'),
+          title: w.name || defaultMatch?.title || 'Onboarding Document',
+          category: 'Onboarding',
+          description: w.description || defaultMatch?.description || 'Official onboarding agreement requirement.',
+          terms: w.documentTemplate || defaultMatch?.terms || `Date: {{current_date}}\n\nTo,\n{{employee_name}} ({{employee_code}})\n\nSubject: ${w.name}\n\nThis is an official onboarding document for {{company_name}}.\n\nSincerely,\nFor {{company_name}}`,
+        };
+      });
+    }
+
+    return DEFAULT_COMPANY_AGREEMENTS;
+  }, [companyConfig]);
+
+  // Dynamically resolve ALL Non-Onboarding Company Documents (Requestable & Downloadable)
+  const companyOfficialDocs: CompanyOfficialDocItem[] = useMemo(() => {
+    const allDocWorkflows: any[] =
+      companyConfig?.approvalWorkflows?.documents ||
+      companyConfig?.workflows?.documents ||
+      companyConfig?.documentTypes ||
+      [];
+
+    // Filter for all active non-onboarding documents
+    const nonOnboardingWorkflows = allDocWorkflows.filter((w: any) => {
+      if (w.active === false) return false;
+      const g = (w.group || '').toLowerCase();
+      const id = (w.id || '').toLowerCase();
+      return !g.includes('onboarding') && !['doc-joining', 'doc-offer', 'doc-appointment', 'doc-nda', 'doc-code-conduct', 'doc-asset-handover'].includes(id);
+    });
+
+    if (nonOnboardingWorkflows.length > 0) {
+      return nonOnboardingWorkflows.map((w: any) => {
+        const defaultMatch = DEFAULT_COMPANY_OFFICIAL_DOCS.find(
+          (d) => d.id === w.id || d.name.toLowerCase() === (w.name || '').toLowerCase()
+        );
+
+        const manualStepRoles = (w.manualSteps || []).map((s: any) => s.role || s.name || 'HR Manager');
+
+        return {
+          id: w.id,
+          code: defaultMatch?.code || (w.id ? w.id.replace('doc-', '').toUpperCase().slice(0, 4) : 'DOC'),
+          name: w.name || defaultMatch?.name || 'Company Document',
+          group: w.group || defaultMatch?.group || 'Official Records',
+          description: w.description || defaultMatch?.description || 'Official company letter template.',
+          allowDownload: w.allowDownload !== false,
+          allowEmployeeRequest: w.allowEmployeeRequest !== false,
+          terms: w.documentTemplate || defaultMatch?.terms || `Date: {{current_date}}\n\nTo,\n{{employee_name}} ({{employee_code}})\n\nSubject: ${w.name}\n\nThis is an official certificate from {{company_name}}.\n\nSincerely,\nFor {{company_name}}`,
+          approvalChain: manualStepRoles.length > 0 ? manualStepRoles : ['HR Manager'],
+        };
+      });
+    }
+
+    return DEFAULT_COMPANY_OFFICIAL_DOCS;
+  }, [companyConfig]);
 
   // Modal states for signing company agreement
   const [signingAgr, setSigningAgr] = useState<CompanyAgreementItem | null>(null);
   const [agrSignatureText, setAgrSignatureText] = useState('');
   const [hasAcknowledged, setHasAcknowledged] = useState(false);
+
+  // Modal states for requesting document
+  const [requestingDoc, setRequestingDoc] = useState<CompanyOfficialDocItem | null>(null);
+  const [requestDocNote, setRequestDocNote] = useState('');
+  const [submittingDocReq, setSubmittingDocReq] = useState(false);
+
+  // Modal states for viewing / downloading document
+  const [previewingLetter, setPreviewingLetter] = useState<CompanyOfficialDocItem | null>(null);
 
   // Modal states for doc requests
   const [signingDocReq, setSigningDocReq] = useState<DocRequest | null>(null);
@@ -191,7 +638,7 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
   });
 
   // Calculate pending sign count for badge
-  const pendingAgreementCount = DEFAULT_COMPANY_AGREEMENTS.filter((agr) => {
+  const pendingAgreementCount = companyAgreements.filter((agr) => {
     const isSigned = !!signedDocs[agr.code] || (agr.code === 'APT' && currentUser?.acceptance?.signed);
     return !isSigned;
   }).length;
@@ -403,6 +850,35 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
     }
   };
 
+  // --- Handlers for Requesting Official Company Documents ---
+  const handleOpenRequestDoc = (doc: CompanyOfficialDocItem) => {
+    setRequestingDoc(doc);
+    setRequestDocNote('');
+  };
+
+  const handleSubmitDocRequest = async () => {
+    if (!requestingDoc) return;
+    setSubmittingDocReq(true);
+    const ok = await requestDocument({
+      letterKey: requestingDoc.id,
+      letterTitle: requestingDoc.name,
+      note: requestDocNote.trim(),
+      approvalChain: requestingDoc.approvalChain || ['HR Manager'],
+    });
+    setSubmittingDocReq(false);
+
+    if (ok) {
+      Alert.alert(
+        'Request Submitted Successfully',
+        `Your request for "${requestingDoc.name}" has been submitted for approval. You will receive email notifications as each approver acts.`
+      );
+      setRequestingDoc(null);
+      setRequestDocNote('');
+    } else {
+      Alert.alert('Request Failed', 'Could not submit document request. Please check your connection and try again.');
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: theme.bg }]}
@@ -426,7 +902,7 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
         </View>
       </View>
 
-      {/* Segmented Tab Navigation */}
+      {/* Segmented Tab Navigation (4 Tabs) */}
       <View style={[styles.tabsContainer, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
         <TouchableOpacity
           style={[
@@ -443,11 +919,36 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
                 activeTab === 'onboarding' && styles.activeTabText,
               ]}
             >
-              Sign &amp; Acknowledge
+              Onboarding
             </Text>
             {totalActionNeeded > 0 && (
               <View style={[styles.counterBadge, { backgroundColor: '#ef4444' }]}>
                 <Text style={styles.counterText}>{totalActionNeeded}</Text>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.tabBtn,
+            activeTab === 'documents' && [styles.activeTabBtn, { backgroundColor: theme.card }],
+          ]}
+          onPress={() => setActiveTab('documents')}
+        >
+          <View style={styles.tabBadgeRow}>
+            <Text
+              style={[
+                styles.tabText,
+                { color: activeTab === 'documents' ? theme.primary : theme.textMuted },
+                activeTab === 'documents' && styles.activeTabText,
+              ]}
+            >
+              Documents
+            </Text>
+            {companyOfficialDocs.length > 0 && (
+              <View style={[styles.counterBadge, { backgroundColor: theme.primary }]}>
+                <Text style={styles.counterText}>{companyOfficialDocs.length}</Text>
               </View>
             )}
           </View>
@@ -519,11 +1020,11 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
           </View>
 
           <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 14 }]}>
-            Company Onboarding Agreements ({DEFAULT_COMPANY_AGREEMENTS.length})
+            Company Onboarding Agreements ({companyAgreements.length})
           </Text>
 
           <View style={styles.cardList}>
-            {DEFAULT_COMPANY_AGREEMENTS.map((agr) => {
+            {companyAgreements.map((agr) => {
               const isSigned = !!signedDocs[agr.code] || (agr.code === 'APT' && currentUser?.acceptance?.signed);
               const sigInfo = signedDocs[agr.code];
               const signedDate = sigInfo?.signedAt || currentUser?.acceptance?.signedAt;
@@ -596,82 +1097,172 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
               );
             })}
           </View>
+        </View>
+      )}
 
-          {/* Issued Official Letters from HR */}
-          {myIssuedDocs.length > 0 && (
-            <View style={{ marginTop: 22 }}>
-              <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
-                Letters Issued from HR ({myIssuedDocs.length})
-              </Text>
-              {myIssuedDocs.map((doc) => {
-                const isApproved = doc.status === 'approved';
-                const isPending = doc.status === 'pending';
-                const needsSignature = isApproved && !doc.employeeAccepted;
-                const isAccepted = isApproved && doc.employeeAccepted;
+      {/* ============================================================ */}
+      {/* TAB 2: OFFICIAL DOCUMENTS, CERTIFICATES & REQUESTS */}
+      {/* ============================================================ */}
+      {activeTab === 'documents' && (
+        <View style={styles.tabSection}>
+          <View style={[styles.infoBanner, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
+            <Icon name="document" size={20} color={theme.primary} />
+            <Text style={[styles.infoBannerText, { color: theme.textPrimary }]}>
+              Browse official company letters and certificates. Download approved documents directly or request certificates with automated multi-stage email approvals.
+            </Text>
+          </View>
+
+          {/* Search bar */}
+          <View style={[styles.searchBox, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
+            <Icon name="document" size={16} color={theme.textMuted} />
+            <TextInput
+              style={[styles.searchInput, { color: theme.textPrimary }]}
+              value={docSearchQuery}
+              onChangeText={setDocSearchQuery}
+              placeholder="Search company letters & certificates..."
+              placeholderTextColor={theme.textMuted}
+            />
+            {docSearchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setDocSearchQuery('')}>
+                <Text style={{ color: theme.textMuted, fontSize: 13 }}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 14 }]}>
+            Official Company Documents ({companyOfficialDocs.length})
+          </Text>
+
+          <View style={styles.cardList}>
+            {companyOfficialDocs
+              .filter((doc) => {
+                if (!docSearchQuery.trim()) return true;
+                const q = docSearchQuery.toLowerCase();
+                return doc.name.toLowerCase().includes(q) || doc.group.toLowerCase().includes(q) || doc.description.toLowerCase().includes(q);
+              })
+              .map((doc) => {
+                // Find if current employee has any pending or approved request for this document
+                const existingReq = myIssuedDocs.find(
+                  (r) => r.letterKey === doc.id || r.letterTitle?.toLowerCase() === doc.name.toLowerCase()
+                );
+
+                const isPending = existingReq?.status === 'pending';
+                const isApproved = existingReq?.status === 'approved';
+                const isRejected = existingReq?.status === 'rejected';
+
+                const totalSteps = existingReq?.steps?.length || 1;
+                const currentStepIdx = (existingReq?.currentStep || 0) + 1;
+                const currentApprover = existingReq?.steps?.[existingReq?.currentStep || 0]?.approver || 'Approver';
 
                 return (
                   <View
                     key={doc.id}
                     style={[
                       styles.docCard,
-                      { backgroundColor: theme.card, borderColor: needsSignature ? theme.primary : theme.cardBorder },
+                      {
+                        backgroundColor: theme.card,
+                        borderColor: isApproved ? '#10b981' : isPending ? '#f59e0b' : theme.cardBorder,
+                        borderWidth: isApproved || isPending ? 1.5 : 1,
+                      },
                     ]}
                   >
-                    <View style={[styles.docIconBg, { backgroundColor: theme.tealSoft }]}>
-                      <Icon name="document" size={22} color={theme.primary} />
+                    <View style={[styles.docIconBg, { backgroundColor: isApproved ? '#dcfce7' : isPending ? '#fef3c7' : '#eff6ff' }]}>
+                      <Icon name="document" size={22} color={isApproved ? '#16a34a' : isPending ? '#d97706' : theme.primary} />
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.docTitle, { color: theme.textPrimary }]}>{doc.letterTitle}</Text>
+
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <View style={styles.titleRow}>
+                        <Text style={[styles.docTitle, { color: theme.textPrimary }]}>{doc.name}</Text>
+                      </View>
+
                       <Text style={[styles.docMeta, { color: theme.textMuted }]}>
-                        Format: {doc.format?.toUpperCase() || 'PDF'} · Date: {new Date(doc.requestedAt).toLocaleDateString()}
+                        {doc.group}
                       </Text>
 
-                      <View style={styles.statusPillRow}>
-                        {isPending && (
-                          <View style={[styles.statusPill, { backgroundColor: '#fef3c7' }]}>
-                            <Text style={[styles.statusPillText, { color: '#b45309' }]}>⏳ Under Review</Text>
+                      <Text style={[styles.docDesc, { color: theme.textMuted }]} numberOfLines={2}>
+                        {doc.description}
+                      </Text>
+
+                      {/* Attribute Badges */}
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                        {doc.allowDownload && (
+                          <View style={[styles.attrBadge, { backgroundColor: '#dcfce7' }]}>
+                            <Text style={[styles.attrBadgeText, { color: '#15803d' }]}>📥 Downloadable</Text>
                           </View>
                         )}
-                        {needsSignature && (
-                          <View style={[styles.statusPill, { backgroundColor: '#fee2e2' }]}>
-                            <Text style={[styles.statusPillText, { color: '#b91c1c' }]}>✍️ E-Signature Required</Text>
-                          </View>
-                        )}
-                        {isAccepted && (
-                          <View style={[styles.statusPill, { backgroundColor: '#dcfce7' }]}>
-                            <Text style={[styles.statusPillText, { color: '#15803d' }]}>✅ Accepted &amp; Signed</Text>
+                        {doc.allowEmployeeRequest && (
+                          <View style={[styles.attrBadge, { backgroundColor: '#e0f2fe' }]}>
+                            <Text style={[styles.attrBadgeText, { color: '#0369a1' }]}>📝 Requestable</Text>
                           </View>
                         )}
                       </View>
+
+                      {/* Request status banner if exists */}
+                      {existingReq && (
+                        <View style={{ marginTop: 8 }}>
+                          {isPending && (
+                            <View style={[styles.statusPill, { backgroundColor: '#fef3c7' }]}>
+                              <Text style={[styles.statusPillText, { color: '#b45309' }]}>
+                                ⏳ In Review: Step {currentStepIdx} of {totalSteps} ({currentApprover})
+                              </Text>
+                            </View>
+                          )}
+                          {isApproved && (
+                            <View style={[styles.statusPill, { backgroundColor: '#dcfce7' }]}>
+                              <Text style={[styles.statusPillText, { color: '#15803d' }]}>
+                                ✅ Approved by Management · Ready to Download
+                              </Text>
+                            </View>
+                          )}
+                          {isRejected && (
+                            <View style={[styles.statusPill, { backgroundColor: '#fee2e2' }]}>
+                              <Text style={[styles.statusPillText, { color: '#b91c1c' }]}>
+                                ❌ Request Declined
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      )}
                     </View>
 
+                    {/* Action buttons */}
                     <View style={styles.actionsCol}>
-                      {needsSignature ? (
+                      {doc.allowDownload && (
                         <TouchableOpacity
-                          style={[styles.signBtn, { backgroundColor: theme.primary }]}
-                          onPress={() => handleOpenSignDocReq(doc)}
+                          style={[styles.downloadBtn, { backgroundColor: '#059669', marginBottom: doc.allowEmployeeRequest ? 6 : 0 }]}
+                          onPress={() => setPreviewingLetter(doc)}
                         >
-                          <Text style={styles.signBtnText}>Sign</Text>
+                          <Text style={styles.downloadBtnText}>📥 Download</Text>
                         </TouchableOpacity>
-                      ) : (
+                      )}
+
+                      {doc.allowEmployeeRequest && (
                         <TouchableOpacity
-                          style={[styles.actionIconBtn, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}
-                          onPress={() => Alert.alert('Download', `Downloading ${doc.letterTitle}...`)}
+                          style={[
+                            styles.requestDocBtn,
+                            {
+                              backgroundColor: isPending ? theme.inputBg : theme.primary,
+                              borderColor: isPending ? theme.cardBorder : theme.primary,
+                            },
+                          ]}
+                          onPress={() => handleOpenRequestDoc(doc)}
+                          disabled={isPending}
                         >
-                          <Icon name="download" size={16} color={theme.primary} />
+                          <Text style={[styles.requestDocBtnText, isPending && { color: theme.textMuted }]}>
+                            {isPending ? 'In Review' : 'Request'}
+                          </Text>
                         </TouchableOpacity>
                       )}
                     </View>
                   </View>
                 );
               })}
-            </View>
-          )}
+          </View>
         </View>
       )}
 
       {/* ============================================================ */}
-      {/* TAB 2: MY UPLOADS & KYC DOCUMENT LOCKER */}
+      {/* TAB 3: MY UPLOADS & KYC DOCUMENT LOCKER */}
       {/* ============================================================ */}
       {activeTab === 'uploads' && (
         <View style={styles.tabSection}>
@@ -847,8 +1438,10 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
 
             {/* Document terms scroll */}
             <ScrollView style={[styles.termsBox, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-              <Text style={[styles.termsTitle, { color: theme.textPrimary }]}>Terms &amp; Conditions Summary:</Text>
-              <Text style={[styles.termsText, { color: theme.textMuted }]}>{signingAgr?.terms}</Text>
+              <Text style={[styles.termsTitle, { color: theme.textPrimary, marginBottom: 8 }]}>Official Document & Terms:</Text>
+              <Text style={[styles.termsText, { color: theme.textPrimary, lineHeight: 21, fontSize: 13 }]}>
+                {formatDocumentTerms(signingAgr?.terms || '', currentUser, companyConfig)}
+              </Text>
             </ScrollView>
 
             {/* Acknowledgement Checkbox */}
@@ -1273,6 +1866,106 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
           </View>
         </View>
       </Modal>
+
+      {/* ============================================================ */}
+      {/* MODAL: REQUEST COMPANY DOCUMENT */}
+      {/* ============================================================ */}
+      <Modal visible={!!requestingDoc} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+            <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Request Official Document</Text>
+            <Text style={[styles.modalSubtitle, { color: theme.primary }]}>
+              {requestingDoc?.name}
+            </Text>
+
+            <Text style={[styles.docDesc, { color: theme.textMuted, marginVertical: 6 }]}>
+              {requestingDoc?.description}
+            </Text>
+
+            <View style={[styles.infoBanner, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder, marginVertical: 8 }]}>
+              <Icon name="document" size={16} color={theme.primary} />
+              <Text style={[styles.infoBannerText, { color: theme.textPrimary, fontSize: 11.5, marginLeft: 6, flex: 1 }]}>
+                Upon submitting, this request will be routed for multi-stage approval. You will receive email notifications as each approver reviews your request.
+              </Text>
+            </View>
+
+            <Text style={[styles.inputLabel, { color: theme.textPrimary, marginTop: 8 }]}>Purpose / Reason for Request:</Text>
+            <TextInput
+              style={[styles.modalTextArea, { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder }]}
+              value={requestDocNote}
+              onChangeText={setRequestDocNote}
+              placeholder="e.g. Bank loan processing / Visa stamping / Academic verification..."
+              placeholderTextColor={theme.textMuted}
+              multiline
+              numberOfLines={3}
+            />
+
+            <View style={[styles.modalBtnRow, { marginTop: 14 }]}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, { borderColor: theme.cardBorder }]}
+                onPress={() => setRequestingDoc(null)}
+                disabled={submittingDocReq}
+              >
+                <Text style={[styles.modalCancelText, { color: theme.textMuted }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalConfirmBtn, { backgroundColor: theme.primary }]}
+                onPress={handleSubmitDocRequest}
+                disabled={submittingDocReq}
+              >
+                {submittingDocReq ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.modalConfirmText}>Submit Request 🚀</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ============================================================ */}
+      {/* MODAL: VIEW & DOWNLOAD COMPANY DOCUMENT */}
+      {/* ============================================================ */}
+      <Modal visible={!!previewingLetter} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.cardBorder, maxHeight: '88%' }]}>
+            <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Document Preview &amp; Download</Text>
+            <Text style={[styles.modalSubtitle, { color: theme.primary }]}>
+              {previewingLetter?.name}
+            </Text>
+
+            <ScrollView style={[styles.termsBox, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder, marginVertical: 10, maxHeight: 320 }]}>
+              <Text style={[styles.termsText, { color: theme.textPrimary, lineHeight: 21, fontSize: 13 }]}>
+                {formatDocumentTerms(previewingLetter?.terms || '', currentUser, companyConfig)}
+              </Text>
+            </ScrollView>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, { borderColor: theme.cardBorder }]}
+                onPress={() => setPreviewingLetter(null)}
+              >
+                <Text style={[styles.modalCancelText, { color: theme.textMuted }]}>Close</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalConfirmBtn, { backgroundColor: '#059669' }]}
+                onPress={() => {
+                  Alert.alert(
+                    'Official Copy Downloaded',
+                    `Your official certificate copy for "${previewingLetter?.name}" with authorized details is downloaded.`
+                  );
+                  setPreviewingLetter(null);
+                }}
+              >
+                <Text style={styles.modalConfirmText}>📥 Download PDF</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -1323,10 +2016,10 @@ const styles = StyleSheet.create({
   tabBadgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
   tabText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   activeTabText: {
@@ -1334,33 +2027,53 @@ const styles = StyleSheet.create({
   },
   counterBadge: {
     borderRadius: 10,
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     paddingVertical: 1,
+    minWidth: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   counterText: {
     color: '#ffffff',
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '800',
   },
   tabSection: {
-    marginTop: 2,
+    marginBottom: 20,
   },
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
     padding: 12,
     borderRadius: 14,
     borderWidth: 1,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   infoBannerText: {
-    fontSize: 11,
+    fontSize: 12,
+    lineHeight: 18,
+    marginLeft: 10,
     flex: 1,
-    lineHeight: 16,
+    fontWeight: '500',
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    height: 40,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 12.5,
+    marginLeft: 8,
+    paddingVertical: 0,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
     marginBottom: 10,
   },
@@ -1369,10 +2082,9 @@ const styles = StyleSheet.create({
   },
   docCard: {
     flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 16,
-    borderWidth: 1,
     padding: 12,
+    borderRadius: 16,
+    alignItems: 'center',
   },
   docIconBg: {
     width: 44,
@@ -1385,33 +2097,41 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
   },
   docTitle: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 13.5,
+    fontWeight: '800',
   },
   docMeta: {
-    fontSize: 10.5,
+    fontSize: 11,
     marginTop: 2,
+    fontWeight: '500',
   },
   docDesc: {
-    fontSize: 11,
+    fontSize: 11.5,
+    lineHeight: 16,
     marginTop: 4,
-    lineHeight: 15,
+  },
+  attrBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  attrBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
   },
   statusPillRow: {
     flexDirection: 'row',
     marginTop: 6,
-    flexWrap: 'wrap',
   },
   statusPill: {
     paddingHorizontal: 8,
-    paddingVertical: 2.5,
-    borderRadius: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   statusPillText: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: '700',
   },
   actionsCol: {
@@ -1420,23 +2140,46 @@ const styles = StyleSheet.create({
   },
   signBtn: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderRadius: 10,
   },
   signBtnText: {
     color: '#ffffff',
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 11.5,
+    fontWeight: '800',
   },
   reSignBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
   },
   reSignBtnText: {
-    fontSize: 10.5,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  downloadBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  downloadBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  requestDocBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  requestDocBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   actionIconBtn: {
     width: 32,
@@ -1449,11 +2192,10 @@ const styles = StyleSheet.create({
   uploadHeaderCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
-    gap: 12,
+    marginBottom: 4,
   },
   uploadCardTitle: {
     fontSize: 14,
@@ -1461,46 +2203,26 @@ const styles = StyleSheet.create({
   },
   uploadCardDesc: {
     fontSize: 11,
-    marginTop: 2,
-    lineHeight: 15,
+    lineHeight: 16,
+    marginTop: 3,
+    marginRight: 10,
   },
   uploadActionBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
   uploadActionBtnText: {
     color: '#ffffff',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '800',
-  },
-  emptyCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 6,
-  },
-  emptyTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  emptyText: {
-    fontSize: 11,
-    textAlign: 'center',
-    lineHeight: 16,
-    maxWidth: 280,
   },
   uploadedDocCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: 12,
     borderRadius: 16,
     borderWidth: 1,
-    padding: 12,
   },
   uploadedActionRow: {
     flexDirection: 'row',
@@ -1529,23 +2251,48 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
   },
+  trashBtn: {
+    padding: 6,
+  },
+  trashIcon: {
+    fontSize: 14,
+  },
+  emptyCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  emptyTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 8,
+  },
+  emptyText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 18,
+  },
   roleBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 12,
-    borderRadius: 14,
+    padding: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   roleBannerText: {
-    fontSize: 12,
+    fontSize: 11.5,
+    marginLeft: 8,
     flex: 1,
   },
   approvalCard: {
+    padding: 12,
     borderRadius: 16,
     borderWidth: 1,
-    padding: 14,
     marginBottom: 10,
   },
   approvalHeader: {
@@ -1655,96 +2402,106 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   termsText: {
-    fontSize: 10.5,
-    lineHeight: 16,
+    fontSize: 11.5,
   },
   ackRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   checkboxBox: {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
     borderRadius: 5,
     borderWidth: 1.5,
     borderColor: '#94a3b8',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 1,
+    marginRight: 8,
+    marginTop: 2,
   },
   checkmark: {
     color: '#ffffff',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '900',
   },
   ackLabel: {
-    fontSize: 11,
     flex: 1,
-    lineHeight: 15,
-  },
-  signAgreementBox: {
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 12,
-  },
-  signAgreementText: {
-    fontSize: 11,
-    fontStyle: 'italic',
+    fontSize: 11.5,
     lineHeight: 16,
   },
   inputLabel: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   modalInput: {
+    height: 40,
     borderRadius: 10,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 9,
     fontSize: 12,
     marginBottom: 14,
   },
-  categoryChipsRow: {
-    flexDirection: 'row',
-    marginBottom: 6,
-  },
-  categoryChip: {
+  modalTextArea: {
+    height: 72,
     borderRadius: 10,
     borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 12,
+    textAlignVertical: 'top',
+    marginBottom: 8,
+  },
+  signAgreementBox: {
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  signAgreementText: {
+    fontSize: 11.5,
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
+  categoryChipsRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  categoryChip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
     marginRight: 6,
   },
   categoryChipText: {
-    fontSize: 10.5,
+    fontSize: 11,
   },
   fileAttachmentNotice: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 10,
+    padding: 8,
     borderRadius: 10,
     borderWidth: 1,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   fileAttachmentText: {
     fontSize: 10.5,
+    marginLeft: 6,
     flex: 1,
+    lineHeight: 14,
   },
   docPreviewArea: {
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 14,
     borderRadius: 14,
     borderWidth: 1,
-    padding: 24,
-    marginBottom: 16,
+    marginVertical: 12,
   },
   docPreviewText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   docPreviewSub: {
     fontSize: 11,
@@ -1787,6 +2544,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   modalConfirmText: {
     color: '#ffffff',

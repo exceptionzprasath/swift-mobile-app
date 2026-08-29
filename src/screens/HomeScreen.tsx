@@ -384,6 +384,7 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
             { tab: 'attendance', label: 'Attendance', icon: 'clock' as IconName, color: theme.cyan },
             { tab: 'payroll', label: 'Payslips', icon: 'payroll' as IconName, color: theme.primary },
             { tab: 'leaves', label: 'Apply Leave', icon: 'leaves' as IconName, color: theme.warning },
+            { tab: 'requests', label: 'Requests', icon: 'task' as IconName, color: '#059669' },
             { tab: 'documents', label: 'Documents', icon: 'document' as IconName, color: '#a855f7' },
             { tab: 'chat', label: 'AI Assistant', icon: 'bot' as IconName, color: '#ec4899' },
           ].map((item) => (

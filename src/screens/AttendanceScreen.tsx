@@ -250,67 +250,44 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
             ? 'Morning Punch Active (Flexible Grace - No cutoff).'
             : `Morning Punch Active (${minsRemaining}m grace left before ${cutoffFormatted}).`,
           isAfternoonSession: false,
+          isLate: false,
+          lateMins: 0,
           unlocksAt: undefined,
           isWeeklyOff: false,
         };
       } else {
-        if (allowHalfDayLogin) {
-          return {
-            isAllowed: false,
-            reason: 'morning_exceeded_awaiting_afternoon',
-            message: `Morning grace period exceeded (${morningGraceMins}m). Marked Absent for Morning. Afternoon check-in opens at ${halfDayLoginTimeStr}.`,
-            isAfternoonSession: false,
-            unlocksAt: halfDayLoginTimeStr,
-            isWeeklyOff: false,
-          };
-        } else {
-          return {
-            isAllowed: false,
-            reason: 'locked_full_day',
-            message: `Grace period exceeded (${morningGraceMins}m past ${shiftStartStr}). Attendance locked for the entire day (Marked Full Day Absent).`,
-            isAfternoonSession: false,
-            unlocksAt: undefined,
-            isWeeklyOff: false,
-          };
-        }
+        const lateMins = currentMins - shiftStartMins;
+        return {
+          isAllowed: true,
+          reason: 'morning_late',
+          message: `Shift started at ${shiftStartStr}. Grace period (${morningGraceMins}m) exceeded. Check-in enabled: Marked as Late (${lateMins}m late).`,
+          isAfternoonSession: false,
+          isLate: true,
+          lateMins,
+          unlocksAt: undefined,
+          isWeeklyOff: false,
+        };
       }
     }
 
     if (currentMins >= halfDayMins) {
-      if (!allowHalfDayLogin) {
-        return {
-          isAllowed: false,
-          reason: 'locked_full_day',
-          message: `Morning grace period missed. Attendance locked for full day as per policy (Marked Full Day Absent).`,
-          isAfternoonSession: false,
-          unlocksAt: undefined,
-          isWeeklyOff: false,
-        };
-      }
+      const isWithinAfternoonGrace = isAfternoonFlexible || currentMins <= afternoonCutoffMins;
+      const lateMins = Math.max(0, currentMins - halfDayMins);
+      const minsRemaining = isAfternoonFlexible ? 999 : Math.max(0, afternoonCutoffMins - currentMins);
+      const cutoffFormatted = `${String(Math.floor(afternoonCutoffMins / 60)).padStart(2, '0')}:${String(afternoonCutoffMins % 60).padStart(2, '0')}`;
 
-      if (isAfternoonFlexible || currentMins <= afternoonCutoffMins) {
-        const minsRemaining = isAfternoonFlexible ? 999 : Math.max(0, afternoonCutoffMins - currentMins);
-        const cutoffFormatted = `${String(Math.floor(afternoonCutoffMins / 60)).padStart(2, '0')}:${String(afternoonCutoffMins % 60).padStart(2, '0')}`;
-        return {
-          isAllowed: true,
-          reason: 'afternoon_grace_valid',
-          message: isAfternoonFlexible
-            ? 'Afternoon Punch Active (Half-Day Session - Flexible Grace).'
-            : `Afternoon Punch Active (Half-Day Session, ${minsRemaining}m grace left before ${cutoffFormatted}).`,
-          isAfternoonSession: true,
-          unlocksAt: undefined,
-          isWeeklyOff: false,
-        };
-      } else {
-        return {
-          isAllowed: false,
-          reason: 'afternoon_exceeded_locked',
-          message: `Afternoon grace period exceeded (${afternoonGraceMins}m past ${halfDayLoginTimeStr}). Attendance locked for the day (Marked Absent).`,
-          isAfternoonSession: true,
-          unlocksAt: undefined,
-          isWeeklyOff: false,
-        };
-      }
+      return {
+        isAllowed: true,
+        reason: isWithinAfternoonGrace ? 'afternoon_grace_valid' : 'afternoon_late',
+        message: isWithinAfternoonGrace
+          ? `Afternoon Punch Active (Half-Day Session, ${minsRemaining}m grace left before ${cutoffFormatted}).`
+          : `Afternoon Session (Half-Day, Late by ${lateMins}m). Check-in enabled.`,
+        isAfternoonSession: true,
+        isLate: !isWithinAfternoonGrace,
+        lateMins,
+        unlocksAt: undefined,
+        isWeeklyOff: false,
+      };
     }
 
     return {
@@ -860,6 +837,44 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                 </View>
               )}
 
+              {/* Late Arrival Alert Banner */}
+              {punctualityStatus.isLate && !isClockedIn && (
+                <View
+                  style={{
+                    backgroundColor: theme.isDark ? 'rgba(234, 88, 12, 0.15)' : '#fff7ed',
+                    borderColor: '#ea580c',
+                    borderWidth: 1,
+                    borderRadius: 14,
+                    padding: 14,
+                    marginBottom: 14,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 19,
+                      backgroundColor: '#ffedd5',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Icon name="clock" size={20} color="#ea580c" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#c2410c' }}>
+                      Late Check-In Active ({punctualityStatus.lateMins}m Late)
+                    </Text>
+                    <Text style={{ fontSize: 11, color: '#9a3412', marginTop: 2, lineHeight: 16 }}>
+                      {punctualityStatus.message} Total working hours will be calculated dynamically from your check-in to check-out timestamps.
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               {/* Biometric Face Enrollment Status / Quick Action Pill */}
               <TouchableOpacity
                 style={[
@@ -923,8 +938,10 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                       ? '🟢 Shift active. Punch out.'
                       : punctualityStatus.isWeeklyOff
                       ? '🏖️ Swift Roster: Today is Weekly Off (Check-in restricted).'
-                      : !punctualityStatus.isAllowed
-                      ? '🔴 Check-in locked.'
+                      : punctualityStatus.isLate
+                      ? `🟠 Late Check-in (${punctualityStatus.lateMins}m late). Biometric punch active.`
+                      : punctualityStatus.isAfternoonSession
+                      ? '🌓 Afternoon Session (Half-Day). Biometric punch active.'
                       : 'Biometric AI face matching ready.'}
                   </Text>
                 </View>
@@ -939,6 +956,8 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                         : theme.cardBorder
                       : isClockedIn
                       ? theme.danger
+                      : punctualityStatus.isLate
+                      ? '#ea580c'
                       : theme.primary,
                     borderWidth: punctualityStatus.isWeeklyOff ? 1 : 0,
                     borderColor: punctualityStatus.isWeeklyOff ? '#f59e0b' : 'transparent',
@@ -960,10 +979,12 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                 >
                   {punctualityStatus.isWeeklyOff
                     ? 'Check-In Restricted (Weekly Off)'
-                    : !punctualityStatus.isAllowed
-                    ? 'Attendance Locked (Grace Exceeded)'
                     : isClockedIn
                     ? 'Verify Face to Punch Out'
+                    : punctualityStatus.isLate
+                    ? `Verify Face to Punch In (Late • ${punctualityStatus.lateMins}m)`
+                    : punctualityStatus.isAfternoonSession
+                    ? 'Verify Face to Punch In (Half-Day)'
                     : 'Verify Face to Punch In'}
                 </Text>
               </TouchableOpacity>
