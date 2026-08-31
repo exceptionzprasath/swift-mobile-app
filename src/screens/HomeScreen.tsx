@@ -14,6 +14,7 @@ import LottieView from 'lottie-react-native';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon, IconName } from '../components/Icon';
 import { FaceRegistrationModal } from '../components/FaceRegistrationModal';
+import { HomeHeroBannerCarousel } from '../components/HomeHeroBannerCarousel';
 import { useAppContext } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
@@ -119,6 +120,13 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
           />
         }
       >
+        {/* Company Hero Banner Carousel */}
+        <HomeHeroBannerCarousel
+          theme={theme}
+          bannerConfig={companyConfig?.dashboardBanners}
+          onNavigate={onNavigate}
+        />
+
         {/* Hero Welcome Banner */}
         <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
           <View style={styles.heroHeader}>

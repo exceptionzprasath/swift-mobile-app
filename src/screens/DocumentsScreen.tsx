@@ -303,54 +303,145 @@ export type CompanyOfficialDocItem = {
 };
 
 const DEFAULT_COMPANY_OFFICIAL_DOCS: CompanyOfficialDocItem[] = [
+  // I. Onboarding (6)
   {
-    id: 'doc-exp',
-    code: 'EXP',
-    name: 'Work Experience Certificate',
-    group: 'V. Exit / Service Verification',
-    description: 'Certifies service tenure, employment conduct, and role held with the company.',
+    id: 'doc-joining',
+    code: 'JOIN',
+    name: 'Joining Form',
+    group: 'I. Onboarding',
+    description: 'Employee initial candidate registration and onboarding intake details form.',
     allowDownload: true,
     allowEmployeeRequest: true,
-    terms: `Date: {{current_date}}
-
-EXPERIENCE CERTIFICATE
-
-This is to certify that {{employee_name}} (Employee Code: {{employee_code}}) has served as a full-time employee with {{company_name}} from {{joining_date}} to {{current_date}}.
-
-During their service tenure, {{employee_name}} held the position of {{designation}} in the {{department}} Department.
-
-Their conduct, character, and professional competence were found to be commendable.
-
-For {{company_name}}
-
-{{authorized_signatory_name}}
-{{authorized_signatory_designation}}`,
+    terms: `Date: {{current_date}}\n\nEMPLOYEE JOINING CONFIRMATION & INTAKE\n\nThis document acknowledges that {{employee_name}} (Employee Code: {{employee_code}}) has formally reported to duty on {{joining_date}} at {{branch_name}} for the position of {{designation}} under the {{department}} Department.\n\nReporting Authority: {{manager_name}}\nAnnual Compensation: {{ctc_annual}} (Monthly Gross: {{ctc_monthly}})\n\nAll mandatory onboarding forms, credentials verification, and initial profile entries have been registered with Human Resources.\n\nSincerely,\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
   },
   {
-    id: 'doc-salary-cert',
-    code: 'SAL',
-    name: 'Salary & Income Certificate',
-    group: 'VI. Verification',
-    description: 'Formal income verification for bank loans, credit cards, or visa processing.',
+    id: 'doc-offer',
+    code: 'OFR',
+    name: 'Offer Letter',
+    group: 'I. Onboarding',
+    description: 'Formal pre-joining employment offer letter with compensation breakup.',
     allowDownload: true,
     allowEmployeeRequest: true,
-    terms: `Date: {{current_date}}
-
-TO WHOMSOEVER IT MAY CONCERN
-
-This is to certify that {{employee_name}} (Employee Code: {{employee_code}}) is employed with {{company_name}} as {{designation}} in {{department}}.
-
-Current Remuneration:
-- Fixed Gross Monthly: {{ctc_monthly}}
-- Total Annual CTC: {{ctc_annual}}
-
-Issued upon request for official verification.
-
-For {{company_name}}
-
-{{authorized_signatory_name}}
-{{authorized_signatory_designation}}`,
+    terms: `Date: {{current_date}}\n\nTo,\n{{employee_name}}\nCandidate Code: {{employee_code}}\n\nDear {{employee_name}},\n\nSubject: Offer of Employment for the position of {{designation}}\n\nWe are pleased to offer you the position of {{designation}} in the {{department}} Department at {{company_name}}.\n\nKey Terms of Offer:\n1. Position: {{designation}}\n2. Department: {{department}}\n3. Location: {{branch_name}}\n4. Date of Joining: {{joining_date}}\n5. Annual Total Cost to Company (CTC): {{ctc_annual}} (Fixed Gross Monthly: {{ctc_monthly}})\n6. Reporting Authority: {{manager_name}}\n7. Probation Period: {{probation_months}} from the date of joining.\n\nPlease sign and return this letter as a token of your formal acceptance of this offer.\n\nSincerely,\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
   },
+  {
+    id: 'doc-appointment',
+    code: 'APT',
+    name: 'Appointment Letter',
+    group: 'I. Onboarding',
+    description: 'Official contract of employment with full employment terms and conditions.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}\n\nTo,\n{{employee_name}}\nEmployee Code: {{employee_code}}\nLocation: {{branch_name}}\n\nDear {{employee_name}},\n\nSubject: Letter of Appointment as {{designation}}\n\nWith reference to your application, interview, and subsequent offer acceptance, management is pleased to appoint you as {{designation}} in {{company_name}}, effective from your date of joining on {{joining_date}}.\n\n1. Designation & Duties:\nYou shall perform duties associated with the role of {{designation}} in the {{department}} Department, reporting directly to {{manager_name}}.\n\n2. Compensation:\nYour fixed gross compensation shall be {{ctc_monthly}} per month (Annual CTC: {{ctc_annual}}), subject to statutory deductions.\n\nSincerely,\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-nda',
+    code: 'NDA',
+    name: 'Non-Disclosure Agreement (NDA)',
+    group: 'I. Onboarding',
+    description: 'Non-disclosure agreement for intellectual property and confidentiality protection.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `CONFIDENTIALITY & NON-DISCLOSURE AGREEMENT\n\nDate: {{current_date}}\n\nBetween {{company_name}} and {{employee_name}} (Employee Code: {{employee_code}})\n\nThe Employee agrees to hold all proprietary trade secrets, customer data, software code, source designs, and financial data in strictest confidence.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-code-conduct',
+    code: 'COC',
+    name: 'Code of Conduct & Workplace Ethics',
+    group: 'I. Onboarding',
+    description: 'Company policy compliance, ethical conduct, and workplace guidelines acknowledgment.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `EMPLOYEE CODE OF CONDUCT & WORKPLACE ETHICS\n\nDate: {{current_date}}\n\nEmployee: {{employee_name}} ({{employee_code}})\n\n1. Professionalism & Integrity in all business dealings.\n2. Prevention of Workplace Harassment (POSH compliance).\n3. IT, Information Security & Device Usage standards.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-asset-handover',
+    code: 'ASSET',
+    name: 'Asset Handover Forms',
+    group: 'I. Onboarding',
+    description: 'Company equipment and hardware handover acknowledgment form.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `COMPANY ASSET & EQUIPMENT HANDOVER ACKNOWLEDGMENT FORM\n\nDate: {{current_date}}\n\nEmployee Details:\n- Name: {{employee_name}}\n- Employee Code: {{employee_code}}\n- Designation: {{designation}}\n- Department: {{department}}\n- Work Location: {{branch_name}}\n\nI hereby acknowledge receipt of company-issued equipment (laptop, security badge, official email credentials, and peripherals) in good working condition for official duties with {{company_name}}.\n\nIssued By (IT / Asset Custodian):\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}\n{{company_name}}`,
+  },
+
+  // II. Probation (2)
+  {
+    id: 'doc-prob-confirm',
+    code: 'PRB',
+    name: 'Probation Confirmation Letter',
+    group: 'II. Probation',
+    description: 'Official confirmation letter of permanent employment post probation period.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}\n\nTo,\n{{employee_name}} (Employee Code: {{employee_code}})\n\nSubject: Confirmation of Employment Services\n\nConsequent to the successful completion of your probation period, management is pleased to confirm your appointment as permanent {{designation}} in {{company_name}}.\n\nSincerely,\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-prob-ext',
+    code: 'PEXT',
+    name: 'Probation Extension Letter',
+    group: 'II. Probation',
+    description: 'Notice informing extension of probation period with specific performance milestones.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}\n\nTo,\n{{employee_name}} (Employee Code: {{employee_code}})\n\nSubject: Extension of Probationary Period\n\nThis is to inform you that your probationary period has been extended to provide an opportunity to achieve required performance benchmarks.\n\nSincerely,\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+
+  // III. Movement (3)
+  {
+    id: 'doc-transfer',
+    code: 'TRF',
+    name: 'Transfer Letter',
+    group: 'III. Movement',
+    description: 'Official relocation or inter-department branch transfer letter.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}\n\nTo,\n{{employee_name}} (Employee Code: {{employee_code}})\n\nSubject: Official Transfer / Relocation Order\n\nYou are hereby transferred to {{branch_name}} effective immediately. All reporting structures stand updated.\n\nSincerely,\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-promotion',
+    code: 'PROM',
+    name: 'Promotion Letter',
+    group: 'III. Movement',
+    description: 'Role elevation, designation advancement, and revised responsibility letter.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}\n\nTo,\n{{employee_name}} (Employee Code: {{employee_code}})\n\nSubject: Promotion to {{designation}}\n\nIn recognition of your outstanding performance and dedication, management is pleased to promote you to {{designation}}.\n\nSincerely,\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-increment',
+    code: 'INC',
+    name: 'Increment / Compensation Revision Letter',
+    group: 'III. Movement',
+    description: 'Annual salary revision and appraisal increment confirmation letter.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}\n\nTo,\n{{employee_name}} (Employee Code: {{employee_code}})\n\nSubject: Annual Compensation Revision\n\nWe are pleased to inform you that your compensation has been revised to {{ctc_annual}} per annum (Gross Monthly: {{ctc_monthly}}).\n\nSincerely,\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+
+  // IV. Discipline (2)
+  {
+    id: 'doc-show-cause',
+    code: 'SCN',
+    name: 'Show Cause Notice',
+    group: 'IV. Discipline',
+    description: 'Formal notice demanding explanation for policy or attendance violations.',
+    allowDownload: true,
+    allowEmployeeRequest: false,
+    terms: `Date: {{current_date}}\n\nSHOW CAUSE NOTICE\n\nTo,\n{{employee_name}} (Employee Code: {{employee_code}})\n\nYou are hereby directed to show cause in writing within 48 hours why disciplinary action should not be initiated regarding organizational compliance matters.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-warning',
+    code: 'WARN',
+    name: 'Warning Letter',
+    group: 'IV. Discipline',
+    description: 'Official reprimand letter documented in employee personnel file.',
+    allowDownload: true,
+    allowEmployeeRequest: false,
+    terms: `Date: {{current_date}}\n\nOFFICIAL WARNING NOTICE\n\nTo,\n{{employee_name}} (Employee Code: {{employee_code}})\n\nThis is an official warning letter regarding performance/compliance standards at {{company_name}}.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+
+  // V. Exit (2)
   {
     id: 'doc-relieve',
     code: 'REL',
@@ -359,21 +450,29 @@ For {{company_name}}
     description: 'Formal relieving order certifying clearance of company dues and asset handover.',
     allowDownload: true,
     allowEmployeeRequest: true,
-    terms: `Date: {{current_date}}
+    terms: `Date: {{current_date}}\n\nRELIEVING LETTER\n\nTo,\n{{employee_name}} (Employee Code: {{employee_code}})\n\nThis is to certify that you have been formally relieved from services as {{designation}} in {{department}} at {{company_name}} following clearance of all organizational dues.\n\nWe wish you success in all future endeavors.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
+  {
+    id: 'doc-exp',
+    code: 'EXP',
+    name: 'Work Experience Certificate',
+    group: 'V. Exit',
+    description: 'Certifies service tenure, employment conduct, and role held with the company.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}\n\nEXPERIENCE CERTIFICATE\n\nThis is to certify that {{employee_name}} (Employee Code: {{employee_code}}) has served as a full-time employee with {{company_name}} from {{joining_date}} to {{current_date}}.\n\nDuring their service tenure, {{employee_name}} held the position of {{designation}} in the {{department}} Department.\n\nTheir conduct, character, and professional competence were found to be commendable.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
+  },
 
-RELIEVING LETTER
-
-To,
-{{employee_name}} (Employee Code: {{employee_code}})
-
-This is to certify that you have been formally relieved from services as {{designation}} in {{department}} at {{company_name}} following clearance of all organizational dues.
-
-We wish you success in all future endeavors.
-
-For {{company_name}}
-
-{{authorized_signatory_name}}
-{{authorized_signatory_designation}}`,
+  // VI. Verification (4)
+  {
+    id: 'doc-salary-cert',
+    code: 'SAL',
+    name: 'Salary & Income Certificate',
+    group: 'VI. Verification',
+    description: 'Formal income verification for bank loans, credit cards, or visa processing.',
+    allowDownload: true,
+    allowEmployeeRequest: true,
+    terms: `Date: {{current_date}}\n\nTO WHOMSOEVER IT MAY CONCERN\n\nThis is to certify that {{employee_name}} (Employee Code: {{employee_code}}) is employed with {{company_name}} as {{designation}} in {{department}}.\n\nCurrent Remuneration:\n- Fixed Gross Monthly: {{ctc_monthly}}\n- Total Annual CTC: {{ctc_annual}}\n\nIssued upon request for official verification.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
   },
   {
     id: 'doc-bonafide',
@@ -383,39 +482,17 @@ For {{company_name}}
     description: 'Official proof of active employment for passport, bank, or housing requirements.',
     allowDownload: true,
     allowEmployeeRequest: true,
-    terms: `Date: {{current_date}}
-
-BONAFIDE CERTIFICATE
-
-This is to certify that {{employee_name}} (Employee Code: {{employee_code}}) is a bonafide, active full-time employee of {{company_name}}, currently working as {{designation}} in {{department}}.
-
-For {{company_name}}
-
-{{authorized_signatory_name}}
-{{authorized_signatory_designation}}`,
+    terms: `Date: {{current_date}}\n\nBONAFIDE CERTIFICATE\n\nThis is to certify that {{employee_name}} (Employee Code: {{employee_code}}) is a bonafide, active full-time employee of {{company_name}}, currently working as {{designation}} in {{department}}.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
   },
   {
-    id: 'doc-prob-confirm',
-    code: 'PRB',
-    name: 'Probation Confirmation Letter',
-    group: 'II. Probation',
-    description: 'Official confirmation letter of permanent employment post probation period.',
+    id: 'doc-emp-verif',
+    code: 'EVF',
+    name: 'Employment Verification Letter',
+    group: 'VI. Verification',
+    description: 'Background verification and service validation response letter.',
     allowDownload: true,
     allowEmployeeRequest: true,
-    terms: `Date: {{current_date}}
-
-To,
-{{employee_name}} (Employee Code: {{employee_code}})
-
-Subject: Confirmation of Employment Services
-
-Consequent to the successful completion of your probation period, management is pleased to confirm your appointment as permanent {{designation}} in {{company_name}}.
-
-Sincerely,
-For {{company_name}}
-
-{{authorized_signatory_name}}
-{{authorized_signatory_designation}}`,
+    terms: `Date: {{current_date}}\n\nEMPLOYMENT VERIFICATION LETTER\n\nTo Whom It May Concern,\n\nThis letter confirms that {{employee_name}} is an active employee of {{company_name}} holding the post of {{designation}}.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
   },
   {
     id: 'doc-visa-noc',
@@ -425,18 +502,7 @@ For {{company_name}}
     description: 'NOC letter issued for official international travel or visa stamping.',
     allowDownload: true,
     allowEmployeeRequest: true,
-    terms: `Date: {{current_date}}
-
-NO OBJECTION CERTIFICATE (NOC)
-
-To Whom It May Concern,
-
-This is to certify that {{employee_name}} (Employee Code: {{employee_code}}) is employed as {{designation}} with {{company_name}}. The company has No Objection to their visa application and travel.
-
-For {{company_name}}
-
-{{authorized_signatory_name}}
-{{authorized_signatory_designation}}`,
+    terms: `Date: {{current_date}}\n\nNO OBJECTION CERTIFICATE (NOC)\n\nTo Whom It May Concern,\n\nThis is to certify that {{employee_name}} (Employee Code: {{employee_code}}) is employed as {{designation}} with {{company_name}}. The company has No Objection to their visa application and travel.\n\nFor {{company_name}}\n\n{{authorized_signatory_name}}\n{{authorized_signatory_designation}}`,
   },
 ];
 
@@ -537,6 +603,7 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
   }, [companyConfig]);
 
   // Dynamically resolve ALL Non-Onboarding Company Documents (Requestable & Downloadable)
+  // Dynamically resolve ALL Company Documents (Categorized like Approval Settings)
   const companyOfficialDocs: CompanyOfficialDocItem[] = useMemo(() => {
     const allDocWorkflows: any[] =
       companyConfig?.approvalWorkflows?.documents ||
@@ -544,38 +611,71 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
       companyConfig?.documentTypes ||
       [];
 
-    // Filter for all active non-onboarding documents
-    const nonOnboardingWorkflows = allDocWorkflows.filter((w: any) => {
-      if (w.active === false) return false;
-      const g = (w.group || '').toLowerCase();
-      const id = (w.id || '').toLowerCase();
-      return !g.includes('onboarding') && !['doc-joining', 'doc-offer', 'doc-appointment', 'doc-nda', 'doc-code-conduct', 'doc-asset-handover'].includes(id);
-    });
+    if (allDocWorkflows.length > 0) {
+      return allDocWorkflows
+        .filter((w: any) => w.active !== false)
+        .map((w: any) => {
+          const defaultMatch = DEFAULT_COMPANY_OFFICIAL_DOCS.find(
+            (d) => d.id === w.id || d.name.toLowerCase() === (w.name || '').toLowerCase()
+          );
 
-    if (nonOnboardingWorkflows.length > 0) {
-      return nonOnboardingWorkflows.map((w: any) => {
-        const defaultMatch = DEFAULT_COMPANY_OFFICIAL_DOCS.find(
-          (d) => d.id === w.id || d.name.toLowerCase() === (w.name || '').toLowerCase()
-        );
+          const manualStepRoles = (w.manualSteps || []).map((s: any) => s.role || s.name || 'HR Manager');
 
-        const manualStepRoles = (w.manualSteps || []).map((s: any) => s.role || s.name || 'HR Manager');
-
-        return {
-          id: w.id,
-          code: defaultMatch?.code || (w.id ? w.id.replace('doc-', '').toUpperCase().slice(0, 4) : 'DOC'),
-          name: w.name || defaultMatch?.name || 'Company Document',
-          group: w.group || defaultMatch?.group || 'Official Records',
-          description: w.description || defaultMatch?.description || 'Official company letter template.',
-          allowDownload: w.allowDownload !== false,
-          allowEmployeeRequest: w.allowEmployeeRequest !== false,
-          terms: w.documentTemplate || defaultMatch?.terms || `Date: {{current_date}}\n\nTo,\n{{employee_name}} ({{employee_code}})\n\nSubject: ${w.name}\n\nThis is an official certificate from {{company_name}}.\n\nSincerely,\nFor {{company_name}}`,
-          approvalChain: manualStepRoles.length > 0 ? manualStepRoles : ['HR Manager'],
-        };
-      });
+          return {
+            id: w.id,
+            code: defaultMatch?.code || (w.id ? w.id.replace('doc-', '').toUpperCase().slice(0, 4) : 'DOC'),
+            name: w.name || defaultMatch?.name || 'Company Document',
+            group: w.group || defaultMatch?.group || 'Official Records',
+            description: w.description || defaultMatch?.description || 'Official company letter template.',
+            allowDownload: w.allowDownload !== false,
+            allowEmployeeRequest: w.allowEmployeeRequest !== false,
+            terms:
+              w.documentTemplate ||
+              defaultMatch?.terms ||
+              `Date: {{current_date}}\n\nTo,\n{{employee_name}} ({{employee_code}})\n\nSubject: ${w.name}\n\nThis is an official document from {{company_name}}.\n\nSincerely,\nFor {{company_name}}`,
+            approvalChain: manualStepRoles.length > 0 ? manualStepRoles : ['HR Manager'],
+          };
+        });
     }
 
     return DEFAULT_COMPANY_OFFICIAL_DOCS;
   }, [companyConfig]);
+
+  // Selected Category Filter State
+  const [selectedDocCategory, setSelectedDocCategory] = useState<string>('All');
+
+  // Unique categories extracted dynamically from companyOfficialDocs
+  const docCategories = useMemo(() => {
+    const groups = new Set<string>();
+    companyOfficialDocs.forEach((d) => {
+      if (d.group && d.group.trim()) groups.add(d.group.trim());
+    });
+    return ['All', ...Array.from(groups)];
+  }, [companyOfficialDocs]);
+
+  // Grouped documents for categorized display
+  const categorizedDocs = useMemo(() => {
+    const filtered = companyOfficialDocs.filter((doc) => {
+      const matchesCategory = selectedDocCategory === 'All' || doc.group === selectedDocCategory;
+      if (!matchesCategory) return false;
+      if (!docSearchQuery.trim()) return true;
+      const q = docSearchQuery.toLowerCase();
+      return (
+        doc.name.toLowerCase().includes(q) ||
+        (doc.group && doc.group.toLowerCase().includes(q)) ||
+        doc.description.toLowerCase().includes(q)
+      );
+    });
+
+    const groupsMap: Record<string, CompanyOfficialDocItem[]> = {};
+    filtered.forEach((doc) => {
+      const g = doc.group || 'Official Records';
+      if (!groupsMap[g]) groupsMap[g] = [];
+      groupsMap[g].push(doc);
+    });
+
+    return groupsMap;
+  }, [companyOfficialDocs, selectedDocCategory, docSearchQuery]);
 
   // Modal states for signing company agreement
   const [signingAgr, setSigningAgr] = useState<CompanyAgreementItem | null>(null);
@@ -1101,14 +1201,14 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
       )}
 
       {/* ============================================================ */}
-      {/* TAB 2: OFFICIAL DOCUMENTS, CERTIFICATES & REQUESTS */}
+      {/* TAB 2: OFFICIAL DOCUMENTS, CERTIFICATES & REQUESTS (CATEGORIZED) */}
       {/* ============================================================ */}
       {activeTab === 'documents' && (
         <View style={styles.tabSection}>
           <View style={[styles.infoBanner, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
             <Icon name="document" size={20} color={theme.primary} />
             <Text style={[styles.infoBannerText, { color: theme.textPrimary }]}>
-              Browse official company letters and certificates. Download approved documents directly or request certificates with automated multi-stage email approvals.
+              Browse official company letters and certificates categorized dynamically by lifecycle stage. Download approved documents directly or submit requests for multi-stage approval.
             </Text>
           </View>
 
@@ -1119,7 +1219,7 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
               style={[styles.searchInput, { color: theme.textPrimary }]}
               value={docSearchQuery}
               onChangeText={setDocSearchQuery}
-              placeholder="Search company letters & certificates..."
+              placeholder="Search letters, certificates & policies..."
               placeholderTextColor={theme.textMuted}
             />
             {docSearchQuery.length > 0 && (
@@ -1129,135 +1229,330 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
             )}
           </View>
 
-          <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 14 }]}>
-            Official Company Documents ({companyOfficialDocs.length})
-          </Text>
+          {/* Dynamic Category Filter Pills */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.categoryPillsScroll}
+            contentContainerStyle={styles.categoryPillsContainer}
+          >
+            {docCategories.map((cat) => {
+              const isSelected = selectedDocCategory === cat;
+              const count =
+                cat === 'All'
+                  ? companyOfficialDocs.length
+                  : companyOfficialDocs.filter((d) => d.group === cat).length;
 
-          <View style={styles.cardList}>
-            {companyOfficialDocs
-              .filter((doc) => {
-                if (!docSearchQuery.trim()) return true;
-                const q = docSearchQuery.toLowerCase();
-                return doc.name.toLowerCase().includes(q) || doc.group.toLowerCase().includes(q) || doc.description.toLowerCase().includes(q);
-              })
-              .map((doc) => {
-                // Find if current employee has any pending or approved request for this document
-                const existingReq = myIssuedDocs.find(
-                  (r) => r.letterKey === doc.id || r.letterTitle?.toLowerCase() === doc.name.toLowerCase()
-                );
-
-                const isPending = existingReq?.status === 'pending';
-                const isApproved = existingReq?.status === 'approved';
-                const isRejected = existingReq?.status === 'rejected';
-
-                const totalSteps = existingReq?.steps?.length || 1;
-                const currentStepIdx = (existingReq?.currentStep || 0) + 1;
-                const currentApprover = existingReq?.steps?.[existingReq?.currentStep || 0]?.approver || 'Approver';
-
-                return (
-                  <View
-                    key={doc.id}
+              return (
+                <TouchableOpacity
+                  key={cat}
+                  style={[
+                    styles.categoryPillBtn,
+                    isSelected
+                      ? { backgroundColor: theme.primary, borderColor: theme.primary }
+                      : { backgroundColor: theme.card, borderColor: theme.cardBorder },
+                  ]}
+                  onPress={() => setSelectedDocCategory(cat)}
+                  activeOpacity={0.75}
+                >
+                  <Text
                     style={[
-                      styles.docCard,
+                      styles.categoryPillText,
+                      { color: isSelected ? '#ffffff' : theme.textPrimary },
+                    ]}
+                  >
+                    {cat}
+                  </Text>
+                  <View
+                    style={[
+                      styles.categoryPillBadge,
                       {
-                        backgroundColor: theme.card,
-                        borderColor: isApproved ? '#10b981' : isPending ? '#f59e0b' : theme.cardBorder,
-                        borderWidth: isApproved || isPending ? 1.5 : 1,
+                        backgroundColor: isSelected
+                          ? 'rgba(255, 255, 255, 0.25)'
+                          : theme.isDark
+                          ? 'rgba(255, 255, 255, 0.1)'
+                          : '#f1f5f9',
                       },
                     ]}
                   >
-                    <View style={[styles.docIconBg, { backgroundColor: isApproved ? '#dcfce7' : isPending ? '#fef3c7' : '#eff6ff' }]}>
-                      <Icon name="document" size={22} color={isApproved ? '#16a34a' : isPending ? '#d97706' : theme.primary} />
+                    <Text
+                      style={[
+                        styles.categoryPillBadgeText,
+                        { color: isSelected ? '#ffffff' : theme.textMuted },
+                      ]}
+                    >
+                      {count}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* Grouped Categorized Document Sections */}
+          {Object.keys(categorizedDocs).length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+              <Icon name="info" size={20} color={theme.textMuted} />
+              <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+                No documents found matching "{docSearchQuery}".
+              </Text>
+            </View>
+          ) : (
+            Object.entries(categorizedDocs).map(([groupTitle, docs]) => {
+              const isGroupOnboarding = groupTitle.toLowerCase().includes('onboarding');
+              const isGroupProbation = groupTitle.toLowerCase().includes('probation');
+              const isGroupMovement = groupTitle.toLowerCase().includes('movement');
+              const isGroupDiscipline = groupTitle.toLowerCase().includes('discipline');
+              const isGroupExit = groupTitle.toLowerCase().includes('exit');
+              const isGroupVerification = groupTitle.toLowerCase().includes('verification');
+
+              const groupHeaderBg = isGroupOnboarding
+                ? theme.isDark ? 'rgba(3, 105, 161, 0.15)' : '#e0f2fe'
+                : isGroupProbation
+                ? theme.isDark ? 'rgba(217, 119, 6, 0.15)' : '#fef3c7'
+                : isGroupMovement
+                ? theme.isDark ? 'rgba(126, 34, 206, 0.15)' : '#f3e8ff'
+                : isGroupDiscipline
+                ? theme.isDark ? 'rgba(220, 38, 38, 0.15)' : '#fee2e2'
+                : isGroupExit
+                ? theme.isDark ? 'rgba(194, 65, 12, 0.15)' : '#ffedd5'
+                : isGroupVerification
+                ? theme.isDark ? 'rgba(22, 163, 74, 0.15)' : '#dcfce7'
+                : theme.inputBg;
+
+              const groupTextColor = isGroupOnboarding
+                ? '#0369a1'
+                : isGroupProbation
+                ? '#b45309'
+                : isGroupMovement
+                ? '#7e22ce'
+                : isGroupDiscipline
+                ? '#b91c1c'
+                : isGroupExit
+                ? '#c2410c'
+                : isGroupVerification
+                ? '#15803d'
+                : theme.primary;
+
+              return (
+                <View key={groupTitle} style={styles.categoryGroupSection}>
+                  {/* Category Header Banner */}
+                  <View
+                    style={[
+                      styles.categoryGroupHeader,
+                      {
+                        backgroundColor: groupHeaderBg,
+                        borderColor: theme.cardBorder,
+                      },
+                    ]}
+                  >
+                    <View style={styles.categoryGroupHeaderLeft}>
+                      <View
+                        style={[
+                          styles.categoryGroupIconCircle,
+                          { backgroundColor: theme.card },
+                        ]}
+                      >
+                        <Icon
+                          name={
+                            isGroupOnboarding
+                              ? 'user'
+                              : isGroupProbation
+                              ? 'clock'
+                              : isGroupMovement
+                              ? 'sparkles'
+                              : isGroupDiscipline
+                              ? 'alert-circle'
+                              : isGroupExit
+                              ? 'logout'
+                              : isGroupVerification
+                              ? 'shield'
+                              : 'document'
+                          }
+                          size={14}
+                          color={groupTextColor}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.categoryGroupTitle,
+                          { color: groupTextColor },
+                        ]}
+                      >
+                        {groupTitle}
+                      </Text>
                     </View>
 
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <View style={styles.titleRow}>
-                        <Text style={[styles.docTitle, { color: theme.textPrimary }]}>{doc.name}</Text>
-                      </View>
-
-                      <Text style={[styles.docMeta, { color: theme.textMuted }]}>
-                        {doc.group}
+                    <View
+                      style={[
+                        styles.categoryGroupCountPill,
+                        { backgroundColor: theme.card },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.categoryGroupCountText,
+                          { color: groupTextColor },
+                        ]}
+                      >
+                        {docs.length} {docs.length === 1 ? 'Doc' : 'Docs'}
                       </Text>
-
-                      <Text style={[styles.docDesc, { color: theme.textMuted }]} numberOfLines={2}>
-                        {doc.description}
-                      </Text>
-
-                      {/* Attribute Badges */}
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                        {doc.allowDownload && (
-                          <View style={[styles.attrBadge, { backgroundColor: '#dcfce7' }]}>
-                            <Text style={[styles.attrBadgeText, { color: '#15803d' }]}>📥 Downloadable</Text>
-                          </View>
-                        )}
-                        {doc.allowEmployeeRequest && (
-                          <View style={[styles.attrBadge, { backgroundColor: '#e0f2fe' }]}>
-                            <Text style={[styles.attrBadgeText, { color: '#0369a1' }]}>📝 Requestable</Text>
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Request status banner if exists */}
-                      {existingReq && (
-                        <View style={{ marginTop: 8 }}>
-                          {isPending && (
-                            <View style={[styles.statusPill, { backgroundColor: '#fef3c7' }]}>
-                              <Text style={[styles.statusPillText, { color: '#b45309' }]}>
-                                ⏳ In Review: Step {currentStepIdx} of {totalSteps} ({currentApprover})
-                              </Text>
-                            </View>
-                          )}
-                          {isApproved && (
-                            <View style={[styles.statusPill, { backgroundColor: '#dcfce7' }]}>
-                              <Text style={[styles.statusPillText, { color: '#15803d' }]}>
-                                ✅ Approved by Management · Ready to Download
-                              </Text>
-                            </View>
-                          )}
-                          {isRejected && (
-                            <View style={[styles.statusPill, { backgroundColor: '#fee2e2' }]}>
-                              <Text style={[styles.statusPillText, { color: '#b91c1c' }]}>
-                                ❌ Request Declined
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                      )}
-                    </View>
-
-                    {/* Action buttons */}
-                    <View style={styles.actionsCol}>
-                      {doc.allowDownload && (
-                        <TouchableOpacity
-                          style={[styles.downloadBtn, { backgroundColor: '#059669', marginBottom: doc.allowEmployeeRequest ? 6 : 0 }]}
-                          onPress={() => setPreviewingLetter(doc)}
-                        >
-                          <Text style={styles.downloadBtnText}>📥 Download</Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {doc.allowEmployeeRequest && (
-                        <TouchableOpacity
-                          style={[
-                            styles.requestDocBtn,
-                            {
-                              backgroundColor: isPending ? theme.inputBg : theme.primary,
-                              borderColor: isPending ? theme.cardBorder : theme.primary,
-                            },
-                          ]}
-                          onPress={() => handleOpenRequestDoc(doc)}
-                          disabled={isPending}
-                        >
-                          <Text style={[styles.requestDocBtnText, isPending && { color: theme.textMuted }]}>
-                            {isPending ? 'In Review' : 'Request'}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
                     </View>
                   </View>
-                );
-              })}
-          </View>
+
+                  {/* Document Cards in this Category */}
+                  <View style={styles.cardList}>
+                    {docs.map((doc) => {
+                      const existingReq = myIssuedDocs.find(
+                        (r) =>
+                          r.letterKey === doc.id ||
+                          r.letterTitle?.toLowerCase() === doc.name.toLowerCase()
+                      );
+
+                      const isPending = existingReq?.status === 'pending';
+                      const isApproved = existingReq?.status === 'approved';
+                      const isRejected = existingReq?.status === 'rejected';
+
+                      const totalSteps = existingReq?.steps?.length || 1;
+                      const currentStepIdx = (existingReq?.currentStep || 0) + 1;
+                      const currentApprover =
+                        existingReq?.steps?.[existingReq?.currentStep || 0]?.approver || 'Approver';
+
+                      return (
+                        <View
+                          key={doc.id}
+                          style={[
+                            styles.docCard,
+                            {
+                              backgroundColor: theme.card,
+                              borderColor: isApproved
+                                ? '#10b981'
+                                : isPending
+                                ? '#f59e0b'
+                                : theme.cardBorder,
+                              borderWidth: isApproved || isPending ? 1.5 : 1,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.docIconBg,
+                              {
+                                backgroundColor: isApproved
+                                  ? '#dcfce7'
+                                  : isPending
+                                  ? '#fef3c7'
+                                  : groupHeaderBg,
+                              },
+                            ]}
+                          >
+                            <Icon
+                              name="document"
+                              size={22}
+                              color={
+                                isApproved
+                                  ? '#16a34a'
+                                  : isPending
+                                  ? '#d97706'
+                                  : groupTextColor
+                              }
+                            />
+                          </View>
+
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <View style={styles.titleRow}>
+                              <Text style={[styles.docTitle, { color: theme.textPrimary }]}>
+                                {doc.name}
+                              </Text>
+                            </View>
+
+                            <Text style={[styles.docMeta, { color: theme.textMuted }]}>
+                              Code: {doc.code} · {doc.group}
+                            </Text>
+
+                            <Text style={[styles.docDesc, { color: theme.textMuted }]} numberOfLines={2}>
+                              {doc.description}
+                            </Text>
+
+                            {/* Attribute Badges */}
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                              {doc.allowDownload && (
+                                <View style={[styles.attrBadge, { backgroundColor: '#dcfce7' }]}>
+                                  <Text style={[styles.attrBadgeText, { color: '#15803d' }]}>📥 Downloadable</Text>
+                                </View>
+                              )}
+                              {doc.allowEmployeeRequest && (
+                                <View style={[styles.attrBadge, { backgroundColor: '#e0f2fe' }]}>
+                                  <Text style={[styles.attrBadgeText, { color: '#0369a1' }]}>📝 Requestable</Text>
+                                </View>
+                              )}
+                            </View>
+
+                            {/* Request status banner if exists */}
+                            {existingReq && (
+                              <View style={{ marginTop: 8 }}>
+                                {isPending && (
+                                  <View style={[styles.statusPill, { backgroundColor: '#fef3c7' }]}>
+                                    <Text style={[styles.statusPillText, { color: '#b45309' }]}>
+                                      ⏳ In Review: Step {currentStepIdx} of {totalSteps} ({currentApprover})
+                                    </Text>
+                                  </View>
+                                )}
+                                {isApproved && (
+                                  <View style={[styles.statusPill, { backgroundColor: '#dcfce7' }]}>
+                                    <Text style={[styles.statusPillText, { color: '#15803d' }]}>
+                                      ✅ Approved by Management · Ready to Download
+                                    </Text>
+                                  </View>
+                                )}
+                                {isRejected && (
+                                  <View style={[styles.statusPill, { backgroundColor: '#fee2e2' }]}>
+                                    <Text style={[styles.statusPillText, { color: '#b91c1c' }]}>
+                                      ❌ Request Declined
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                            )}
+                          </View>
+
+                          {/* Action buttons */}
+                          <View style={styles.actionsCol}>
+                            {doc.allowDownload && (
+                              <TouchableOpacity
+                                style={[styles.downloadBtn, { backgroundColor: '#059669', marginBottom: doc.allowEmployeeRequest ? 6 : 0 }]}
+                                onPress={() => setPreviewingLetter(doc)}
+                              >
+                                <Text style={styles.downloadBtnText}>📥 Download</Text>
+                              </TouchableOpacity>
+                            )}
+
+                            {doc.allowEmployeeRequest && (
+                              <TouchableOpacity
+                                style={[
+                                  styles.requestDocBtn,
+                                  {
+                                    backgroundColor: isPending ? theme.inputBg : theme.primary,
+                                    borderColor: isPending ? theme.cardBorder : theme.primary,
+                                  },
+                                ]}
+                                onPress={() => handleOpenRequestDoc(doc)}
+                                disabled={isPending}
+                              >
+                                <Text style={[styles.requestDocBtnText, isPending && { color: theme.textMuted }]}>
+                                  {isPending ? 'In Review' : 'Request'}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })
+          )}
         </View>
       )}
 
@@ -2679,5 +2974,75 @@ const styles = StyleSheet.create({
   pageNavCounter: {
     fontSize: 11.5,
     fontWeight: '700',
+  },
+  categoryPillsScroll: {
+    marginBottom: 14,
+  },
+  categoryPillsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  categoryPillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  categoryPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  categoryPillBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 10,
+  },
+  categoryPillBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  categoryGroupSection: {
+    marginBottom: 20,
+  },
+  categoryGroupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  categoryGroupHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  categoryGroupIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  categoryGroupTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  categoryGroupCountPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 12,
+  },
+  categoryGroupCountText: {
+    fontSize: 10.5,
+    fontWeight: '800',
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
-import { FaceRegistrationModal } from '../components/FaceRegistrationModal';
 import { useAppContext, EmployeeDocument, FamilyMember, EducationEntry, ExperienceEntry } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
@@ -26,9 +25,8 @@ interface ProfileScreenProps {
 type ProfileSectionTab = 'work' | 'personal' | 'statutory' | 'history' | 'documents';
 
 export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenProps) {
-  const { currentUser, companyConfig, refreshData } = useAppContext();
+  const { currentUser, employees, companyConfig, refreshData } = useAppContext();
   const [activeTab, setActiveTab] = useState<ProfileSectionTab>('work');
-  const [faceModalVisible, setFaceModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showMaskedData, setShowMaskedData] = useState(false);
 
@@ -80,6 +78,72 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
   const skillsList: string[] = Array.isArray(currentUser?.skills) ? currentUser.skills : [];
   const languagesList: string[] = Array.isArray(currentUser?.languagesKnown) ? currentUser.languagesKnown : [];
 
+  // Robust Reporting Manager Resolution
+  const reportingManagerDisplay = useMemo(() => {
+    // 1. Direct explicit name or value on currentUser
+    if (currentUser?.reportingManager && currentUser.reportingManager.trim() !== '' && currentUser.reportingManager !== '-') {
+      const matchEmp = (employees || []).find(
+        (e: any) => e.id === currentUser.reportingManager || e.empCode === currentUser.reportingManager
+      );
+      if (matchEmp) {
+        return `${matchEmp.name} (${matchEmp.designation || 'Manager'})`;
+      }
+      return currentUser.reportingManager;
+    }
+
+    // 2. managerId lookup in employee roster
+    if (currentUser?.managerId && currentUser.managerId !== '__none') {
+      const matchMgr = (employees || []).find(
+        (e: any) => e.id === currentUser.managerId || e.empCode === currentUser.managerId
+      );
+      if (matchMgr) {
+        return `${matchMgr.name} (${matchMgr.designation || 'Manager'})`;
+      }
+    }
+
+    // 3. Custom approval workflow hierarchy
+    const workflowApproverId = (companyConfig as any)?.approvalSettings?.customWorkflows?.find(
+      (w: any) => w.employeeId === currentUser?.id
+    )?.approverId;
+    if (workflowApproverId) {
+      const matchApprover = (employees || []).find((e: any) => e.id === workflowApproverId);
+      if (matchApprover) {
+        return `${matchApprover.name} (${matchApprover.designation || 'Approver'})`;
+      }
+    }
+
+    // 4. Role / Designation based intelligent hierarchy fallback
+    const designationLower = (currentUser?.designation || '').toLowerCase();
+    const roleLower = (currentUser?.roleName || '').toLowerCase();
+
+    if (
+      designationLower.includes('founder') ||
+      designationLower.includes('director') ||
+      designationLower.includes('ceo') ||
+      designationLower.includes('president') ||
+      designationLower.includes('partner') ||
+      roleLower.includes('owner') ||
+      roleLower.includes('super admin')
+    ) {
+      return 'Top Management / Board of Directors';
+    }
+
+    // 5. Check if there is a department head
+    const deptHead = (employees || []).find(
+      (e: any) =>
+        e.id !== currentUser?.id &&
+        e.department === currentUser?.department &&
+        ((e.designation || '').toLowerCase().includes('lead') ||
+          (e.designation || '').toLowerCase().includes('head') ||
+          (e.designation || '').toLowerCase().includes('manager'))
+    );
+    if (deptHead) {
+      return `${deptHead.name} (${deptHead.designation || 'Dept Head'})`;
+    }
+
+    return 'Direct Management / HR Admin';
+  }, [currentUser, employees, companyConfig]);
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: theme.bg }]}
@@ -114,20 +178,15 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
         </View>
 
         <View style={styles.avatarSection}>
-          <TouchableOpacity
+          <View
             style={[styles.avatarLarge, { backgroundColor: theme.primary, borderColor: theme.cardBorder }]}
-            onPress={() => setFaceModalVisible(true)}
-            activeOpacity={0.85}
           >
             {currentUser?.photoDataUrl ? (
               <Image source={{ uri: currentUser.photoDataUrl }} style={styles.avatarImageLarge} resizeMode="cover" />
             ) : (
               <Text style={styles.avatarText}>{initial}</Text>
             )}
-            <View style={[styles.cameraBadge, { backgroundColor: theme.primary }]}>
-              <Icon name="camera" size={12} color="#ffffff" />
-            </View>
-          </TouchableOpacity>
+          </View>
 
           <Text style={[styles.name, { color: theme.textPrimary }]}>{currentUser?.name || 'Employee'}</Text>
           <Text style={[styles.role, { color: theme.textMuted }]}>
@@ -162,11 +221,7 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
 
         {/* Verification Status Highlights Bar */}
         <View style={[styles.verifyHighlightsBar, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-          <TouchableOpacity
-            style={styles.verifyItem}
-            onPress={() => setFaceModalVisible(true)}
-            activeOpacity={0.7}
-          >
+          <View style={styles.verifyItem}>
             <View style={[styles.verifyIconCircle, { backgroundColor: isFaceEnrolled ? (theme.isDark ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7') : (theme.isDark ? 'rgba(245, 158, 11, 0.2)' : '#fef3c7') }]}>
               <Icon name={isFaceEnrolled ? 'check' : 'camera'} size={12} color={isFaceEnrolled ? '#16a34a' : '#d97706'} />
             </View>
@@ -174,7 +229,7 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
             <Text style={[styles.verifyStatus, { color: isFaceEnrolled ? '#16a34a' : '#d97706' }]}>
               {isFaceEnrolled ? 'Enrolled' : 'Pending'}
             </Text>
-          </TouchableOpacity>
+          </View>
 
           <View style={[styles.verifyDivider, { backgroundColor: theme.cardBorder }]} />
 
@@ -307,7 +362,7 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
             </View>
             <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
               <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Reporting Manager</Text>
-              <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{currentUser?.reportingManager || '-'}</Text>
+              <Text style={[styles.infoVal, { color: theme.textPrimary }]}>{reportingManagerDisplay}</Text>
             </View>
             <View style={[styles.infoRow, { borderBottomColor: theme.cardBorder }]}>
               <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Date of Joining</Text>
@@ -726,22 +781,22 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <View
           style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: theme.cardBorder, marginTop: 8, paddingTop: 12 }]}
-          onPress={() => setFaceModalVisible(true)}
-          activeOpacity={0.75}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Icon name="camera" size={18} color={theme.primary} />
-            <Text style={[styles.settingLabel, { color: theme.textPrimary }]}>Biometric AI Face Matching</Text>
+            <Icon name="shield" size={18} color={theme.primary} />
+            <View>
+              <Text style={[styles.settingLabel, { color: theme.textPrimary }]}>Biometric AI Face Matching</Text>
+              <Text style={{ fontSize: 10, color: theme.textMuted, marginTop: 1 }}>Enrolled & Protected (Admin Locked)</Text>
+            </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={[styles.settingVal, { color: isFaceEnrolled ? theme.success : '#d97706' }]}>
-              {isFaceEnrolled ? 'Enrolled ✓' : 'Register ⚠️'}
+            <Text style={[styles.settingVal, { color: isFaceEnrolled ? theme.success : '#d97706', fontWeight: '800' }]}>
+              {isFaceEnrolled ? 'Enrolled ✓' : 'Pending'}
             </Text>
-            <Icon name="chevron-right" size={12} color={theme.textMuted} />
           </View>
-        </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: theme.cardBorder, marginTop: 8, paddingTop: 12 }]}
@@ -767,13 +822,6 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
         <Icon name="logout" size={16} color={theme.danger} />
         <Text style={[styles.logoutBtnText, { color: theme.danger }]}>Log Out of Account</Text>
       </TouchableOpacity>
-
-      {/* Face Biometric Enrollment Modal */}
-      <FaceRegistrationModal
-        visible={faceModalVisible}
-        onClose={() => setFaceModalVisible(false)}
-        theme={theme}
-      />
     </ScrollView>
   );
 }
