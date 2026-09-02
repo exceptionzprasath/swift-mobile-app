@@ -11,11 +11,12 @@ import {
   Platform,
   Keyboard,
 } from 'react-native';
-import { ThemeColors } from '../theme/colors';
+import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
 import { useAppContext } from '../context/AppContext';
 import { askSwiftAIChat } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface ChatScreenProps {
   theme: ThemeColors;
@@ -34,7 +35,26 @@ export function ChatScreen({ theme }: ChatScreenProps) {
   const [activeChannel, setActiveChannel] = useState<'ai' | 'team'>('ai');
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  let bottomInset = 0;
+  try {
+    const insets = useSafeAreaInsets();
+    bottomInset = insets?.bottom || 0;
+  } catch (e) {}
+
+  const safeBottomMargin = Math.max(bottomInset, 12) + 14;
+  const tabTabBarHeight = 68;
+  const gapAboveTabBar = 14;
+  const bottomOffsetWhenTabBarVisible = safeBottomMargin + tabTabBarHeight + gapAboveTabBar;
+
+  const currentBottomMargin = isKeyboardVisible
+    ? Platform.OS === 'ios'
+      ? 30
+      : (keyboardHeight > 0 ? keyboardHeight + 30 : 32)
+    : bottomOffsetWhenTabBarVisible;
 
   const userName = currentUser?.name?.split(' ')[0] || 'Employee';
 
@@ -122,15 +142,29 @@ export function ChatScreen({ theme }: ChatScreenProps) {
     return () => clearTimeout(timer);
   }, [aiMessages, teamMessages, isLoading]);
 
-  // Auto scroll to bottom when keyboard appears
+  // Auto scroll and track keyboard visibility & exact height
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const sub = Keyboard.addListener(showEvent, () => {
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setIsKeyboardVisible(true);
+      const height = e?.endCoordinates?.height || 0;
+      setKeyboardHeight(height);
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
     });
-    return () => sub.remove();
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setIsKeyboardVisible(false);
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
   }, []);
 
   const handleSend = async () => {
@@ -246,8 +280,8 @@ export function ChatScreen({ theme }: ChatScreenProps) {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: theme.bg }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 125}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       {/* Top Channel Switcher & AI Status Header */}
       <View style={[styles.headerCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
@@ -390,9 +424,18 @@ export function ChatScreen({ theme }: ChatScreenProps) {
       )}
 
       {/* Input Bar */}
-      <View style={[styles.inputContainer, { backgroundColor: theme.card, borderTopColor: theme.cardBorder }]}>
+      <View
+        style={[
+          styles.inputContainer,
+          {
+            backgroundColor: theme.card,
+            borderColor: theme.cardBorder,
+            marginBottom: currentBottomMargin,
+          },
+        ]}
+      >
         <TextInput
-          style={[styles.textInput, { backgroundColor: theme.inputBg, color: theme.textPrimary }]}
+          style={[styles.textInput, { color: theme.textPrimary }]}
           placeholder={activeChannel === 'ai' ? 'Ask SWIFT AI about leaves, policy, payroll...' : 'Type a message to the team...'}
           placeholderTextColor={theme.textMuted}
           value={inputText}
@@ -559,17 +602,20 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
+    marginHorizontal: 12,
+    paddingLeft: 16,
+    paddingRight: 6,
+    paddingVertical: 5,
+    borderRadius: 24,
+    borderWidth: 1,
     gap: 8,
     alignItems: 'center',
+    ...SHADOWS.sm,
   },
   textInput: {
     flex: 1,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 0,
+    paddingVertical: 6,
     maxHeight: 90,
     fontSize: 13.5,
   },

@@ -1333,7 +1333,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
                         styles.statusPill,
                         {
                           backgroundColor:
-                            ticket.status === 'Resolved' ? '#dcfce7' : ticket.status === 'In Progress' ? '#fef3c7' : '#e0f2fe',
+                            ticket.status === 'Resolved' ? '#dcfce7' : ticket.status === 'In Progress' ? '#fef3c7' : (theme.isDark ? theme.primary + '25' : theme.tealSoft),
                         },
                       ]}
                     >
@@ -1343,14 +1343,14 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
                         ) : ticket.status === 'In Progress' ? (
                           <Icon name="clock" size={11} color="#b45309" />
                         ) : (
-                          <Icon name="alert-circle" size={11} color="#0369a1" />
+                          <Icon name="clock" size={11} color={theme.primary} />
                         )}
                         <Text
                           style={[
                             styles.statusPillText,
                             {
                               color:
-                                ticket.status === 'Resolved' ? '#15803d' : ticket.status === 'In Progress' ? '#b45309' : '#0369a1',
+                                ticket.status === 'Resolved' ? '#15803d' : ticket.status === 'In Progress' ? '#b45309' : theme.primary,
                             },
                           ]}
                         >
@@ -1792,8 +1792,9 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 96,
   },
+
   headerRow: {
     marginBottom: 14,
   },

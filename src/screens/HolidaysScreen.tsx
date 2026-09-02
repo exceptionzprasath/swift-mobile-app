@@ -68,7 +68,7 @@ export function HolidaysScreen({ theme }: HolidaysScreenProps) {
 
       {/* Featured Banner */}
       {upcoming && (
-        <View style={[styles.heroCard, { backgroundColor: theme.tealSoft, borderColor: theme.primaryLight }]}>
+        <View style={[styles.heroCard, { backgroundColor: theme.isDark ? theme.primary + '20' : theme.primary + '12', borderColor: theme.primary + '40' }]}>
           <Text style={[styles.heroBadge, { color: theme.primary }]}>NEXT UPCOMING HOLIDAY</Text>
           <Text style={[styles.heroTitle, { color: theme.textPrimary }]}>{upcoming.name}</Text>
           <Text style={[styles.heroDate, { color: theme.primary }]}>{formatDate(upcoming.date)}</Text>
@@ -90,7 +90,7 @@ export function HolidaysScreen({ theme }: HolidaysScreenProps) {
         const isMandatory = h.isMandatory !== false;
         return (
           <View key={h.id || idx} style={[styles.holidayCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <View style={[styles.iconBg, { backgroundColor: theme.tealSoft }]}>
+            <View style={[styles.iconBg, { backgroundColor: theme.isDark ? theme.primary + '22' : theme.primary + '15' }]}>
               <Icon name="holiday" size={20} color={theme.primary} />
             </View>
 
@@ -103,7 +103,7 @@ export function HolidaysScreen({ theme }: HolidaysScreenProps) {
                   </Text>
                 </View>
               </View>
-              <Text style={[styles.holidayDate, { color: theme.cyan }]}>
+              <Text style={[styles.holidayDate, { color: theme.primary, fontWeight: '700' }]}>
                 📅 {formatDate(h.date)}
               </Text>
               <Text style={[styles.holidayDesc, { color: theme.textMuted }]}>
@@ -113,6 +113,7 @@ export function HolidaysScreen({ theme }: HolidaysScreenProps) {
           </View>
         );
       })}
+
     </ScrollView>
   );
 }
@@ -123,8 +124,9 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 30,
+    paddingBottom: 96,
   },
+
   screenTitle: {
     fontSize: 20,
     fontWeight: '800',

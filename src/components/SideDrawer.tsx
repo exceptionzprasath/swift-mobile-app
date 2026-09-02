@@ -13,9 +13,11 @@ import {
   Dimensions,
   Animated,
   Easing,
+  Switch,
 } from 'react-native';
-import { ThemeColors } from '../theme/colors';
+import { ThemeColors, getPaletteById, COLOR_PALETTES } from '../theme/colors';
 import { Icon, IconName } from './Icon';
+import { ThemePaletteModal } from './ThemePaletteModal';
 import { useAppContext, Employee } from '../context/AppContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -36,12 +38,15 @@ export type SideDrawerAction =
 
 interface SideDrawerProps {
   visible: boolean;
-  theme: ThemeColors;
   onClose: () => void;
-  onNavigate: (tab: any) => void;
+  theme: ThemeColors;
+  onNavigate: (screen: any) => void;
   onToggleTheme: () => void;
+  selectedPaletteId?: string;
+  onSelectPalette?: (paletteId: string) => void;
   onLogout: () => void;
 }
+
 
 interface RequestRecord {
   id: string;
@@ -56,18 +61,27 @@ interface RequestRecord {
 
 export function SideDrawer({
   visible,
-  theme,
   onClose,
+  theme,
   onNavigate,
   onToggleTheme,
+  selectedPaletteId = 'default',
+  onSelectPalette,
   onLogout,
 }: SideDrawerProps) {
   const { currentUser, companyConfig, leaves, docRequests, attendance, applyLeave, refreshData } = useAppContext();
+  const [showPaletteModal, setShowPaletteModal] = useState(false);
+  const darkBgColor = getPaletteById(selectedPaletteId).hexes[0];
 
-  // Animation states for slow, smooth incoming slide
+  // Dropdown states
+  const [isMessagesOpen, setIsMessagesOpen] = useState(true);
+  const [isAccountOpen, setIsAccountOpen] = useState(true);
+
+  // Animation states for snappy, smooth incoming slide
   const [modalVisible, setModalVisible] = useState(visible);
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
 
   const startIncomingAnimation = () => {
     slideAnim.setValue(-DRAWER_WIDTH);
@@ -75,13 +89,13 @@ export function SideDrawer({
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 520, // Smooth, slow, visible incoming glide
-        easing: Easing.out(Easing.cubic),
+        duration: 400,
+        easing: Easing.in(Easing.ease),
         useNativeDriver: true,
       }),
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 520,
+        duration: 400,
         useNativeDriver: true,
       }),
     ]).start();
@@ -92,22 +106,20 @@ export function SideDrawer({
       setModalVisible(true);
       slideAnim.setValue(-DRAWER_WIDTH);
       fadeAnim.setValue(0);
-      // Also start as fallback if onShow is delayed
-      const timer = setTimeout(() => {
+      requestAnimationFrame(() => {
         startIncomingAnimation();
-      }, 50);
-      return () => clearTimeout(timer);
+      });
     } else if (modalVisible) {
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: -DRAWER_WIDTH,
-          duration: 340,
-          easing: Easing.in(Easing.cubic),
+          duration: 400,
+          easing: Easing.in(Easing.ease),
           useNativeDriver: true,
         }),
         Animated.timing(fadeAnim, {
           toValue: 0,
-          duration: 340,
+          duration: 400,
           useNativeDriver: true,
         }),
       ]).start(() => {
@@ -120,19 +132,20 @@ export function SideDrawer({
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: -DRAWER_WIDTH,
-        duration: 340,
-        easing: Easing.in(Easing.cubic),
+        duration: 400,
+        easing: Easing.in(Easing.ease),
         useNativeDriver: true,
       }),
       Animated.timing(fadeAnim, {
         toValue: 0,
-        duration: 340,
+        duration: 400,
         useNativeDriver: true,
       }),
     ]).start(() => {
       onClose();
     });
   };
+
 
   // Sub-modals for extended side panel options
   const [activeModal, setActiveModal] = useState<
@@ -351,20 +364,21 @@ export function SideDrawer({
     {
       title: 'CORE WORKSPACE',
       items: [
-        { key: 'attendance', label: 'Attendance', icon: 'clock', color: '#0284c7', desc: 'Facial punch & timesheets' },
-        { key: 'payroll', label: 'Payslip', icon: 'payroll', color: '#10b981', desc: 'Salary breakdown & slips' },
-        { key: 'leaves', label: 'Apply Leave', icon: 'calendar', color: '#f59e0b', desc: 'Leave & permission balance' },
-        { key: 'documents', label: 'Documents', icon: 'document', color: '#6366f1', desc: 'Letters, KYC & agreements' },
-        { key: 'holidays', label: 'Leave Calendar', icon: 'holiday', color: '#ec4899', desc: 'Official & festive holidays' },
+        { key: 'attendance', label: 'Attendance', icon: 'clock', color: theme.primary, desc: 'Facial punch & timesheets' },
+        { key: 'payroll', label: 'Payslip', icon: 'payroll', color: theme.success, desc: 'Salary breakdown & slips' },
+        { key: 'leaves', label: 'Apply Leave', icon: 'calendar', color: theme.warning, desc: 'Leave & permission balance' },
+        { key: 'documents', label: 'Documents', icon: 'document', color: theme.primaryLight, desc: 'Letters, KYC & agreements' },
+        { key: 'holidays', label: 'Leave Calendar', icon: 'holiday', color: theme.accent, desc: 'Official & festive holidays' },
       ],
     },
     {
       title: 'REQUESTS & SELF-SERVICE',
       items: [
-        { key: 'requests', label: 'Requests', icon: 'task', color: '#059669', desc: 'Advance Loan, Comp-Off & Grievance' },
+        { key: 'requests', label: 'Requests', icon: 'task', color: theme.accent, desc: 'Advance Loan, Comp-Off & Grievance' },
       ],
     },
   ];
+
 
   return (
     <>
@@ -382,103 +396,284 @@ export function SideDrawer({
             style={[
               styles.drawerContainer,
               {
-                backgroundColor: theme.card,
-                borderColor: theme.cardBorder,
+                backgroundColor: darkBgColor,
+                borderColor: 'rgba(255, 255, 255, 0.12)',
                 transform: [{ translateX: slideAnim }],
               },
             ]}
           >
-            {/* Drawer Header with Employee Profile Info */}
-            <View style={[styles.drawerHeader, { backgroundColor: theme.headerBg, borderBottomColor: theme.cardBorder }]}>
-              <View style={styles.profileRow}>
-                <View style={[styles.avatarRing, { borderColor: theme.primary, backgroundColor: theme.tealSoft }]}>
-                  {currentUser?.photoDataUrl ? (
-                    <Image source={{ uri: currentUser.photoDataUrl }} style={styles.avatarImg} resizeMode="cover" />
-                  ) : (
-                    <View style={[styles.avatarFallback, { backgroundColor: theme.primary }]}>
-                      <Text style={styles.avatarLetter}>{initial}</Text>
-                    </View>
-                  )}
-                </View>
-
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.profileName, { color: theme.textPrimary }]} numberOfLines={1}>
-                    {currentUser?.name || 'Employee'}
-                  </Text>
-                  <Text style={[styles.profileRole, { color: theme.primary }]} numberOfLines={1}>
-                    {currentUser?.designation || 'Software Engineer'}
-                  </Text>
-                  <Text style={[styles.profileMeta, { color: theme.textMuted }]}>
-                    ID: {currentUser?.empCode || 'SW001'} • {currentUser?.department || 'Engineering'}
-                  </Text>
-                </View>
-
-                <TouchableOpacity style={styles.closeBtn} onPress={handleClose}>
-                  <Icon name="cross" size={16} color={theme.textMuted} />
+            {/* Drawer Top Header matching reference */}
+            <View style={[styles.drawerHeader, { backgroundColor: darkBgColor, borderBottomColor: 'rgba(255, 255, 255, 0.1)' }]}>
+              <View style={styles.headerTitleRow}>
+                <Text style={styles.mainMenuTitle}>Main Menu</Text>
+                <TouchableOpacity style={styles.circularCloseBtn} onPress={handleClose} activeOpacity={0.75}>
+                  <Icon name="cross" size={18} color="#ffffff" />
                 </TouchableOpacity>
-              </View>
-
-              <View style={[styles.companyBadge, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-                <Icon name="shield" size={14} color={theme.primary} />
-                <Text style={[styles.companyBadgeText, { color: theme.textPrimary }]} numberOfLines={1}>
-                  {currentUser?.companyName || companyConfig?.companyName || 'SWIFT HRMS Enterprise'}
-                </Text>
               </View>
             </View>
 
-            {/* Menu Options ScrollView */}
+            {/* Menu Body */}
             <ScrollView style={styles.drawerBody} contentContainerStyle={styles.drawerBodyContent} showsVerticalScrollIndicator={false}>
-              {menuSections.map((sec, secIdx) => (
-                <View key={sec.title} style={[styles.menuSection, secIdx > 0 && { marginTop: 16 }]}>
-                  <Text style={[styles.sectionHeading, { color: theme.textMuted }]}>{sec.title}</Text>
-                  {sec.items.map((item) => (
-                    <TouchableOpacity
-                      key={item.key}
-                      style={[styles.menuItem, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}
-                      onPress={() => handleSelectDrawerItem(item.key, item)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.menuIconBg, { backgroundColor: item.color + '18' }]}>
-                        <Icon name={item.icon} size={18} color={item.color} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <View style={styles.titleRow}>
-                          <Text style={[styles.menuItemTitle, { color: theme.textPrimary }]}>{item.label}</Text>
-                          {item.isComingSoon && (
-                            <View style={[styles.comingSoonBadge, { backgroundColor: '#f59e0b18', borderColor: '#f59e0b55' }]}>
-                              <Text style={[styles.comingSoonBadgeText, { color: '#f59e0b' }]}>COMING SOON</Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={[styles.menuItemDesc, { color: theme.textMuted }]}>{item.desc}</Text>
-                      </View>
-                      <Icon name="chevron-right" size={18} color={item.isComingSoon ? theme.textMuted + '60' : theme.textMuted} />
-                    </TouchableOpacity>
-                  ))}
+              {/* Top Notification / Profile Status Card */}
+              <TouchableOpacity
+                style={styles.topStatusCard}
+                onPress={() => {
+                  onClose();
+                  onNavigate('profile');
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={styles.whiteCircleBadge}>
+                  {currentUser?.photoDataUrl ? (
+                    <Image source={{ uri: currentUser.photoDataUrl }} style={styles.avatarPhoto} resizeMode="cover" />
+                  ) : (
+                    <Text style={[styles.avatarInitialText, { color: darkBgColor }]}>{initial}</Text>
+                  )}
+                  <View style={styles.badgePulseDot} />
                 </View>
-              ))}
 
-              {/* Bottom Quick Controls: Theme & Sign Out */}
-              <View style={[styles.footerControls, { borderColor: theme.cardBorder }]}>
-                <TouchableOpacity style={[styles.themeToggleBtn, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]} onPress={onToggleTheme}>
-                  <Icon name={theme.isDark ? 'sun' : 'moon'} size={16} color={theme.textPrimary} />
-                  <Text style={[styles.footerBtnText, { color: theme.textPrimary }]}>
-                    {theme.isDark ? 'Light Theme' : 'Dark Theme'}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.topStatusTitle} numberOfLines={1}>
+                    {currentUser?.name || 'Employee Profile'}
                   </Text>
+                  <Text style={styles.topStatusSub} numberOfLines={1}>
+                    {currentUser?.designation || 'Verified Employee'} • {currentUser?.empCode || 'SW001'}
+                  </Text>
+                </View>
+
+                <Icon name="chevron-right" size={18} color="rgba(255, 255, 255, 0.6)" />
+              </TouchableOpacity>
+
+              {/* 2x2 Core Action Grid */}
+              <View style={styles.gridContainer}>
+                {/* Row 1: Attendance & Payslip */}
+                <View style={styles.gridRow}>
+                  <TouchableOpacity
+                    style={styles.gridCard}
+                    onPress={() => handleSelectDrawerItem('attendance')}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.gridIconCircle}>
+                      <Icon name="clock" size={18} color="#ffffff" />
+                    </View>
+                    <Text style={styles.gridCardText}>Attendance</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.gridCard}
+                    onPress={() => handleSelectDrawerItem('payroll')}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.gridIconCircle}>
+                      <Icon name="payroll" size={18} color="#ffffff" />
+                    </View>
+                    <Text style={styles.gridCardText}>Payslips</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Row 2: Apply Leave & Documents */}
+                <View style={styles.gridRow}>
+                  <TouchableOpacity
+                    style={styles.gridCard}
+                    onPress={() => handleSelectDrawerItem('leaves')}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.gridIconCircle}>
+                      <Icon name="calendar" size={18} color="#ffffff" />
+                    </View>
+                    <Text style={styles.gridCardText}>Apply Leave</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.gridCard}
+                    onPress={() => handleSelectDrawerItem('documents')}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.gridIconCircle}>
+                      <Icon name="document" size={18} color="#ffffff" />
+                    </View>
+                    <Text style={styles.gridCardText}>Documents</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Section 1: Messages & Requests Dropdown */}
+              <TouchableOpacity
+                style={styles.dropdownHeader}
+                onPress={() => setIsMessagesOpen(!isMessagesOpen)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.listSectionHeading}>Messages &amp; Requests</Text>
+                <Icon
+                  name={isMessagesOpen ? 'chevron-down' : 'chevron-right'}
+                  size={18}
+                  color="rgba(255, 255, 255, 0.7)"
+                />
+              </TouchableOpacity>
+
+              {isMessagesOpen && (
+                <View style={styles.dropdownBody}>
+                  <TouchableOpacity
+                    style={styles.listRowItem}
+                    onPress={() => {
+                      onClose();
+                      onNavigate('notifications');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="bell" size={20} color="#ffffff" />
+                    <Text style={styles.listRowText}>Notifications &amp; Inbox</Text>
+                    <Icon name="chevron-right" size={16} color="rgba(255, 255, 255, 0.4)" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.listRowItem}
+                    onPress={() => {
+                      onClose();
+                      onNavigate('chat');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="bot" size={20} color="#ffffff" />
+                    <Text style={styles.listRowText}>AI HR Assistant</Text>
+                    <Icon name="chevron-right" size={16} color="rgba(255, 255, 255, 0.4)" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.listRowItem}
+                    onPress={() => {
+                      onClose();
+                      onNavigate('requests');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="task" size={20} color="#ffffff" />
+                    <Text style={styles.listRowText}>Advance Loan &amp; Requests</Text>
+                    <Icon name="chevron-right" size={16} color="rgba(255, 255, 255, 0.4)" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.listRowItem}
+                    onPress={() => {
+                      onClose();
+                      onNavigate('holidays');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="holiday" size={20} color="#ffffff" />
+                    <Text style={styles.listRowText}>Official Holidays Calendar</Text>
+                    <Icon name="chevron-right" size={16} color="rgba(255, 255, 255, 0.4)" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.listRowItem}
+                    onPress={() => {
+                      onClose();
+                      setTimeout(() => setActiveModal('relieve'), 300);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="document" size={20} color="#ffffff" />
+                    <Text style={styles.listRowText}>Relieving &amp; Resignation</Text>
+                    <Icon name="chevron-right" size={16} color="rgba(255, 255, 255, 0.4)" />
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Section 2: Account and Security Dropdown */}
+              <TouchableOpacity
+                style={styles.dropdownHeader}
+                onPress={() => setIsAccountOpen(!isAccountOpen)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.listSectionHeading}>Account and Security</Text>
+                <Icon
+                  name={isAccountOpen ? 'chevron-down' : 'chevron-right'}
+                  size={18}
+                  color="rgba(255, 255, 255, 0.7)"
+                />
+              </TouchableOpacity>
+
+              {isAccountOpen && (
+                <View style={styles.dropdownBody}>
+                  <TouchableOpacity
+                    style={styles.listRowItem}
+                    onPress={() => {
+                      onClose();
+                      onNavigate('profile');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="user" size={20} color="#ffffff" />
+                    <Text style={styles.listRowText}>Update Account Data</Text>
+                    <Icon name="chevron-right" size={16} color="rgba(255, 255, 255, 0.4)" />
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Standalone Theme & Dark Mode Settings (Outside Account and Security) */}
+              <View style={{ marginTop: 10 }}>
+                <TouchableOpacity
+                  style={styles.listRowItem}
+                  onPress={() => setShowPaletteModal(true)}
+                  activeOpacity={0.7}
+                >
+                  <Icon name="sparkles" size={20} color="#ffffff" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.listRowText}>Color Theme Palette</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}>
+                    {getPaletteById(selectedPaletteId).hexes.map((hex, i) => (
+                      <View key={i} style={{ width: 8, height: 12, borderRadius: 2, backgroundColor: hex }} />
+                    ))}
+                  </View>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: '#ef4444' + '15', borderColor: '#ef4444' + '40' }]} onPress={onLogout}>
-                  <Icon name="logout" size={16} color="#ef4444" />
-                  <Text style={[styles.footerBtnText, { color: '#ef4444', fontWeight: '800' }]}>Sign Out</Text>
-                </TouchableOpacity>
+                <View style={styles.listRowItem}>
+                  <Icon name={theme.isDark ? 'moon' : 'sun'} size={20} color="#ffffff" />
+                  <Text style={styles.listRowText}>Dark Mode</Text>
+                  <Switch
+                    value={theme.isDark}
+                    onValueChange={onToggleTheme}
+                    trackColor={{ false: 'rgba(255, 255, 255, 0.25)', true: '#22c55e' }}
+                    thumbColor="#ffffff"
+                    ios_backgroundColor="rgba(255, 255, 255, 0.25)"
+                  />
+                </View>
               </View>
+
+              {/* Solid Red Flat Sign Out Action Button */}
+              <TouchableOpacity
+                style={styles.signOutRedBtn}
+                onPress={onLogout}
+                activeOpacity={0.85}
+              >
+                <Icon name="logout" size={18} color="#ffffff" />
+                <Text style={styles.signOutRedBtnText}>Sign Out</Text>
+              </TouchableOpacity>
             </ScrollView>
           </Animated.View>
+
+
+
+
+
 
           {/* Backdrop Tap to Close (Right Side) */}
           <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
         </Animated.View>
       </Modal>
+
+      {/* Theme Palette Modal for SideDrawer */}
+      <ThemePaletteModal
+        visible={showPaletteModal}
+        theme={theme}
+        selectedPaletteId={selectedPaletteId}
+        onSelectPalette={(id) => {
+          if (onSelectPalette) onSelectPalette(id);
+        }}
+        onClose={() => setShowPaletteModal(false)}
+      />
 
       {/* 1. Advance Loan Request Modal */}
       <Modal visible={activeModal === 'advance_loan'} transparent animationType="fade">
@@ -838,171 +1033,202 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   drawerContainer: {
-    width: Math.min(340, SCREEN_WIDTH * 0.85),
+    width: Math.min(360, SCREEN_WIDTH * 0.88),
     height: '100%',
     borderRightWidth: 1,
     shadowColor: '#000',
-    shadowOffset: { width: 4, height: 0 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 20,
+    shadowOffset: { width: 6, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 20,
+    elevation: 24,
   },
   drawerHeader: {
-    paddingTop: 44,
-    paddingHorizontal: 18,
+    paddingTop: 48,
+    paddingHorizontal: 22,
     paddingBottom: 16,
     borderBottomWidth: 1,
   },
-  profileRow: {
+  headerTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  avatarRing: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  avatarImg: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-  },
-  avatarFallback: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarLetter: {
+  mainMenuTitle: {
+    fontSize: 26,
+    fontWeight: '800',
     color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '800',
+    letterSpacing: -0.5,
   },
-  profileName: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  profileRole: {
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 1,
-  },
-  profileMeta: {
-    fontSize: 10,
-    fontWeight: '500',
-    marginTop: 1,
-  },
-  closeBtn: {
-    padding: 6,
-    borderRadius: 8,
-  },
-  companyBadge: {
-    flexDirection: 'row',
+  circularCloseBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  companyBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    flex: 1,
   },
   drawerBody: {
     flex: 1,
   },
   drawerBodyContent: {
-    padding: 16,
-    paddingBottom: 40,
+    paddingHorizontal: 22,
+    paddingTop: 18,
+    paddingBottom: 48,
   },
-  menuSection: {
-    marginBottom: 4,
+  topStatusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    borderRadius: 24,
+    padding: 12,
+    paddingRight: 16,
+    marginBottom: 18,
   },
-  sectionHeading: {
-    fontSize: 11,
+  whiteCircleBadge: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  avatarPhoto: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+  },
+  avatarInitialText: {
+    fontSize: 22,
     fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 8,
-    textTransform: 'uppercase',
   },
-  menuItem: {
+  badgePulseDot: {
+    position: 'absolute',
+    top: 1,
+    right: 1,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: '#f59e0b',
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+    zIndex: 10,
+  },
+  topStatusTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  topStatusSub: {
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  gridContainer: {
+    gap: 12,
+    marginBottom: 8,
+  },
+  gridRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  gridCard: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
-    marginBottom: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: 18,
+    height: 60,
+    paddingHorizontal: 14,
   },
-  menuIconBg: {
+  gridIconCircle: {
     width: 36,
     height: 36,
-    borderRadius: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  menuItemTitle: {
-    fontSize: 13,
+  gridCardText: {
+    color: '#ffffff',
+    fontSize: 14.5,
     fontWeight: '700',
+    backgroundColor: 'transparent',
+    flex: 1,
   },
-  titleRow: {
+  dropdownHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  comingSoonBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 5,
-    borderWidth: 1,
-  },
-  comingSoonBadgeText: {
-    fontSize: 8.5,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-  },
-  menuItemDesc: {
-    fontSize: 10,
-    marginTop: 2,
-  },
-  footerControls: {
+    justifyContent: 'space-between',
     marginTop: 20,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    gap: 10,
+    marginBottom: 4,
+    paddingVertical: 6,
   },
-  themeToggleBtn: {
+  dropdownBody: {
+    marginBottom: 4,
+  },
+  listSectionHeading: {
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  listRowItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 11,
-    borderRadius: 12,
-    borderWidth: 1,
+    gap: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
   },
-  logoutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 11,
-    borderRadius: 12,
-    borderWidth: 1,
+  listRowText: {
+    color: '#ffffff',
+    fontSize: 15.5,
+    fontWeight: '600',
+    flex: 1,
+    backgroundColor: 'transparent',
   },
-  footerBtnText: {
+  themePillBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  themePillText: {
+    color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
   },
+  signOutRedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#dc2626',
+    borderRadius: 16,
+    paddingVertical: 15,
+    marginTop: 24,
+    marginBottom: 12,
+  },
+  signOutRedBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+
+
+
+
   formModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',

@@ -9,15 +9,18 @@ import {
   RefreshControl,
   Alert,
   Modal,
+  Image,
 } from 'react-native';
-import LottieView from 'lottie-react-native';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon, IconName } from '../components/Icon';
+
 import { FaceRegistrationModal } from '../components/FaceRegistrationModal';
 import { HomeHeroBannerCarousel } from '../components/HomeHeroBannerCarousel';
 import { useAppContext } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
+const GREETING_CARD_WIDTH = width - 32;
+const GREETING_CARD_HEIGHT = Math.round(GREETING_CARD_WIDTH / 3);
 
 interface HomeScreenProps {
   theme: ThemeColors;
@@ -105,6 +108,51 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
     : (branches.find((b: any) => b.id === currentUser?.branchId)?.name || currentUser?.branch || 'Head Office');
   const userName = currentUser?.name?.split(' ')[0] || 'Employee';
 
+  // Dynamic time-based greeting, wishes, and background image (updates live)
+  const [currentHour, setCurrentHour] = useState(() => new Date().getHours());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentHour(new Date().getHours());
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const timeGreetingInfo = useMemo(() => {
+    if (currentHour >= 5 && currentHour < 12) {
+      return {
+        greeting: 'Good Morning',
+        wish: 'Have an energetic & productive day ahead!',
+        emoji: '☀️',
+        image: require('../assets/Morning.png'),
+        period: 'morning',
+      };
+    } else if (currentHour >= 12 && currentHour < 17) {
+      return {
+        greeting: 'Good Afternoon',
+        wish: 'Hope your day is going smoothly & great!',
+        emoji: '🌤️',
+        image: require('../assets/Afternoon.png'),
+        period: 'afternoon',
+      };
+    } else if (currentHour >= 17 && currentHour < 21) {
+      return {
+        greeting: 'Good Evening',
+        wish: 'Great work today! Enjoy your peaceful evening.',
+        emoji: '🌆',
+        image: require('../assets/Evening.png'),
+        period: 'evening',
+      };
+    } else {
+      return {
+        greeting: 'Good Night',
+        wish: 'Rest well and recharge for a bright tomorrow!',
+        emoji: '🌙',
+        image: require('../assets/Night.png'),
+        period: 'night',
+      };
+    }
+  }, [currentHour]);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <ScrollView
@@ -127,82 +175,103 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
           onNavigate={onNavigate}
         />
 
-        {/* Hero Welcome Banner */}
-        <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-          <View style={styles.heroHeader}>
-            <View
-              style={[
-                styles.shiftBadge,
-                isRosterWeeklyOff
-                  ? { backgroundColor: '#fef3c7', borderColor: '#fde68a' }
-                  : { backgroundColor: theme.isDark ? 'rgba(6, 182, 212, 0.15)' : '#e0f2fe', borderColor: theme.isDark ? 'rgba(6, 182, 212, 0.3)' : '#bae6fd' },
-              ]}
-            >
-              <Icon name={isRosterWeeklyOff ? 'coffee' : 'clock'} size={12} color={isRosterWeeklyOff ? '#d97706' : theme.cyan} />
-              <Text style={[styles.shiftText, { color: isRosterWeeklyOff ? '#d97706' : theme.cyan }]}>
-                {isRosterWeeklyOff
-                  ? 'Weekly Off (Swift Roster)'
-                  : todayRoster?.shiftName
-                  ? `${todayRoster.shiftName} ${todayRoster.shiftStart ? `(${todayRoster.shiftStart} - ${todayRoster.shiftEnd || ''})` : ''}`
-                  : (currentUser?.shift || 'Regular Shift (09:00 AM - 06:00 PM)')}
-              </Text>
-            </View>
-            <Text style={[styles.heroDate, { color: theme.textMuted }]}>
-              {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-            </Text>
-          </View>
+        {/* Unified Greeting & Today's Status Card (Template Design) */}
+        <View style={[styles.unifiedHeroCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+          {/* Top: 3:1 Cropped Dynamic Image Banner with Greeting & Wishes */}
+          <View style={styles.cardBannerContainer}>
+            <Image
+              source={timeGreetingInfo.image}
+              style={styles.cardBannerImage}
+              resizeMode="cover"
+            />
+            <View style={styles.cardBannerOverlay} />
 
-          <Text style={[styles.greetingTitle, { color: theme.textPrimary }]}>
-            Welcome back, {userName} 👋
-          </Text>
-          <Text style={[styles.greetingSub, { color: theme.textMuted }]}>
-            {currentUser?.designation || 'GODO'} • {currentUser?.department || 'Engineering'}
-          </Text>
+            <View style={styles.cardBannerContent}>
+              <View style={styles.heroHeader}>
+                <View
+                  style={[
+                    styles.shiftBadge,
+                    isRosterWeeklyOff
+                      ? { backgroundColor: 'rgba(234, 179, 8, 0.4)', borderColor: '#eab308' }
+                      : { backgroundColor: 'rgba(0, 0, 0, 0.55)', borderColor: 'rgba(255, 255, 255, 0.3)' },
+                  ]}
+                >
+                  <Icon name={isRosterWeeklyOff ? 'coffee' : 'clock'} size={11} color={isRosterWeeklyOff ? '#fde047' : '#38bdf8'} />
+                  <Text style={[styles.shiftText, { color: isRosterWeeklyOff ? '#fef08a' : '#ffffff' }]} numberOfLines={1}>
+                    {isRosterWeeklyOff
+                      ? 'Weekly Off'
+                      : todayRoster?.shiftName
+                        ? todayRoster.shiftName
+                        : (currentUser?.shift ? currentUser.shift.split(' ')[0] + ' Shift' : 'Regular Shift')}
+                  </Text>
+                </View>
+                <View style={styles.dateBadge}>
+                  <Text style={styles.heroDate}>
+                    {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </Text>
+                </View>
+              </View>
 
-          {/* Today's Status Widget */}
-          <View style={[styles.punchWidget, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.statusLabel, { color: theme.textMuted }]}>TODAY'S STATUS</Text>
-              <Text
-                style={[
-                  styles.statusValue,
-                  {
-                    color: isClockedIn
-                      ? theme.success
-                      : isRosterWeeklyOff
-                      ? theme.warning
-                      : theme.danger,
-                  },
-                ]}
-              >
-                {isClockedIn && todayRecord
-                  ? `Checked In (${todayRecord.clockIn})`
-                  : isRosterWeeklyOff
-                  ? 'Weekly Off (Restricted)'
-                  : 'Not Checked In'}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                <Icon name="location" size={12} color={theme.textMuted} />
-                <Text style={[styles.locationDetail, { color: theme.textMuted }]}>
-                  {branchName} • Geofence Verified
+              <View style={styles.heroGreetingContent}>
+                <Text style={styles.greetingTitle} numberOfLines={1}>
+                  {timeGreetingInfo.greeting}, {userName}! {timeGreetingInfo.emoji}
+                </Text>
+                <Text style={styles.greetingSub} numberOfLines={1}>
+                  {timeGreetingInfo.wish}
                 </Text>
               </View>
             </View>
+          </View>
 
+          {/* Bottom: Today's Status Details & Full-Width Action Button */}
+          <View style={styles.cardBodyContainer}>
+            {/* Line 1: Status Label */}
+            <Text style={[styles.statusLabel, { color: theme.textMuted }]}>TODAY'S STATUS</Text>
+
+            {/* Line 2: Status Value */}
+            <Text
+              style={[
+                styles.statusValue,
+                {
+                  color: isClockedIn
+                    ? theme.success
+                    : isRosterWeeklyOff
+                      ? theme.warning
+                      : theme.danger,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {isClockedIn && todayRecord
+                ? `Checked In (${todayRecord.clockIn})`
+                : isRosterWeeklyOff
+                  ? 'Weekly Off (Restricted)'
+                  : 'Not Checked In'}
+            </Text>
+
+            {/* Line 3: Location / Geofence Sub-detail */}
+            <View style={styles.statusLocationRow}>
+              <Icon name="location" size={12} color={theme.textMuted} />
+              <Text style={[styles.locationDetail, { color: theme.textMuted }]} numberOfLines={1}>
+                {branchName} • Geofence Verified
+              </Text>
+            </View>
+
+            {/* Line 4: Full-Width Rounded Action Button */}
             {isClockedIn ? (
               <TouchableOpacity
-                style={[styles.quickPunchBtn, { backgroundColor: theme.success }]}
+                style={[styles.fullWidthActionBtn, { backgroundColor: theme.success }]}
                 onPress={() => onNavigate('attendance')}
                 activeOpacity={0.85}
               >
                 <Icon name="camera" size={16} color="#ffffff" />
-                <Text style={styles.quickPunchText}>Check Out</Text>
+                <Text style={styles.fullWidthActionBtnText}>Check Out</Text>
               </TouchableOpacity>
             ) : isRosterWeeklyOff ? (
               <TouchableOpacity
                 style={[
-                  styles.quickPunchBtn,
-                  { backgroundColor: theme.cardBorder, opacity: 0.75, borderWidth: 1, borderColor: theme.warning + '50' },
+                  styles.fullWidthActionBtn,
+                  { backgroundColor: theme.inputBg, borderWidth: 1, borderColor: theme.warning + '60' },
                 ]}
                 onPress={() =>
                   Alert.alert(
@@ -213,16 +282,16 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
                 activeOpacity={0.7}
               >
                 <Icon name="lock" size={15} color={theme.warning} />
-                <Text style={[styles.quickPunchText, { color: theme.warning, fontSize: 11 }]}>Off Day (Locked)</Text>
+                <Text style={[styles.fullWidthActionBtnText, { color: theme.warning }]}>Off Day (Attendance Locked)</Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
-                style={[styles.quickPunchBtn, { backgroundColor: theme.cyan }]}
+                style={[styles.fullWidthActionBtn, { backgroundColor: theme.primary }]}
                 onPress={() => onNavigate('attendance')}
                 activeOpacity={0.85}
               >
                 <Icon name="camera" size={16} color="#ffffff" />
-                <Text style={styles.quickPunchText}>Check In</Text>
+                <Text style={styles.fullWidthActionBtnText}>Check In</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -308,111 +377,172 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
         </View>
 
         <View style={styles.statsGrid}>
-          {/* Card 1: Present (5sec.json Lottie) */}
-          <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <View style={styles.statCardLeft}>
-              <View style={[styles.statIconBadge, { backgroundColor: theme.isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5', borderColor: theme.success }]}>
-                <Icon name="check" size={14} color={theme.success} />
-              </View>
-              <View style={{ marginTop: 6 }}>
-                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>{presentCount} Days</Text>
-                <Text style={[styles.statLabel, { color: theme.textMuted }]}>Present</Text>
-              </View>
+          {/* Card 1: Present (Blue) */}
+          <View
+            style={[
+              styles.statCard,
+              {
+                backgroundColor: theme.isDark ? '#0f172a' : '#eff6ff',
+                borderColor: theme.isDark ? '#3b82f6' : '#bfdbfe',
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statIconBadge,
+                {
+                  backgroundColor: theme.isDark ? '#1e293b' : '#dbeafe',
+                  borderColor: theme.isDark ? '#3b82f6' : '#93c5fd',
+                },
+              ]}
+            >
+              <Icon name="check" size={20} color={theme.isDark ? '#60a5fa' : '#2563eb'} />
             </View>
-            <LottieView
-              source={require('../assets/5sec.json')}
-              autoPlay
-              loop
-              style={styles.lottieAnim}
-            />
+            <View style={styles.statInfoCol}>
+              <Text style={[styles.statNumber, { color: theme.textPrimary }]} numberOfLines={1}>
+                {presentCount} Days
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.textMuted }]} numberOfLines={1}>
+                Present
+              </Text>
+            </View>
           </View>
 
-          {/* Card 2: Overtime (clock-time.json Lottie) */}
-          <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <View style={styles.statCardLeft}>
-              <View style={[styles.statIconBadge, { backgroundColor: theme.isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7', borderColor: theme.warning }]}>
-                <Icon name="clock" size={14} color={theme.warning} />
-              </View>
-              <View style={{ marginTop: 6 }}>
-                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>{otHoursCount} Hrs</Text>
-                <Text style={[styles.statLabel, { color: theme.textMuted }]}>Overtime</Text>
-              </View>
+          {/* Card 2: Overtime (Yellow) */}
+          <View
+            style={[
+              styles.statCard,
+              {
+                backgroundColor: theme.isDark ? '#1c1917' : '#fefce8',
+                borderColor: theme.isDark ? '#eab308' : '#fef08a',
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statIconBadge,
+                {
+                  backgroundColor: theme.isDark ? '#292524' : '#fef9c3',
+                  borderColor: theme.isDark ? '#eab308' : '#fde047',
+                },
+              ]}
+            >
+              <Icon name="clock" size={20} color={theme.isDark ? '#fde047' : '#ca8a04'} />
             </View>
-            <LottieView
-              source={require('../assets/clock-time.json')}
-              autoPlay
-              loop
-              style={styles.lottieAnim}
-            />
+            <View style={styles.statInfoCol}>
+              <Text style={[styles.statNumber, { color: theme.textPrimary }]} numberOfLines={1}>
+                {otHoursCount} Hrs
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.textMuted }]} numberOfLines={1}>
+                Overtime
+              </Text>
+            </View>
           </View>
 
-          {/* Card 3: Leaves Taken (Calender.json Lottie) */}
-          <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <View style={styles.statCardLeft}>
-              <View style={[styles.statIconBadge, { backgroundColor: theme.isDark ? 'rgba(6, 182, 212, 0.15)' : '#e0f2fe', borderColor: theme.cyan }]}>
-                <Icon name="leaves" size={14} color={theme.cyan} />
-              </View>
-              <View style={{ marginTop: 6 }}>
-                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>{leavesTakenCount} Days</Text>
-                <Text style={[styles.statLabel, { color: theme.textMuted }]}>Leaves Taken</Text>
-              </View>
+          {/* Card 3: Leaves Taken (Orange) */}
+          <View
+            style={[
+              styles.statCard,
+              {
+                backgroundColor: theme.isDark ? '#1c1917' : '#fff7ed',
+                borderColor: theme.isDark ? '#f97316' : '#fed7aa',
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statIconBadge,
+                {
+                  backgroundColor: theme.isDark ? '#292524' : '#ffedd5',
+                  borderColor: theme.isDark ? '#f97316' : '#fdba74',
+                },
+              ]}
+            >
+              <Icon name="leaves" size={20} color={theme.isDark ? '#fb923c' : '#ea580c'} />
             </View>
-            <LottieView
-              source={require('../assets/Calender.json')}
-              autoPlay
-              loop
-              style={styles.lottieAnim}
-            />
+            <View style={styles.statInfoCol}>
+              <Text style={[styles.statNumber, { color: theme.textPrimary }]} numberOfLines={1}>
+                {leavesTakenCount} Days
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.textMuted }]} numberOfLines={1}>
+                Leaves Taken
+              </Text>
+            </View>
           </View>
 
-          {/* Card 4: On-Time Score (Score.json Lottie) */}
-          <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <View style={styles.statCardLeft}>
-              <View style={[styles.statIconBadge, { backgroundColor: theme.isDark ? 'rgba(168, 85, 247, 0.15)' : '#f3e8ff', borderColor: '#a855f7' }]}>
-                <Icon name="sparkles" size={14} color="#a855f7" />
-              </View>
-              <View style={{ marginTop: 6 }}>
-                <Text style={[styles.statNumber, { color: theme.textPrimary }]}>{onTimeScore}%</Text>
-                <Text style={[styles.statLabel, { color: theme.textMuted }]}>On-Time Score</Text>
-              </View>
+          {/* Card 4: On-Time Score (Green) */}
+          <View
+            style={[
+              styles.statCard,
+              {
+                backgroundColor: theme.isDark ? '#0f172a' : '#f0fdf4',
+                borderColor: theme.isDark ? '#10b981' : '#bbf7d0',
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statIconBadge,
+                {
+                  backgroundColor: theme.isDark ? '#1e293b' : '#dcfce7',
+                  borderColor: theme.isDark ? '#10b981' : '#86efac',
+                },
+              ]}
+            >
+              <Icon name="hourglass-split" size={20} color={theme.isDark ? '#34d399' : '#16a34a'} />
             </View>
-            <LottieView
-              source={require('../assets/Trophy.json')}
-              autoPlay
-              loop
-              style={styles.lottieAnim}
-            />
+            <View style={styles.statInfoCol}>
+              <Text style={[styles.statNumber, { color: theme.textPrimary }]} numberOfLines={1}>
+                {onTimeScore}%
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.textMuted }]} numberOfLines={1}>
+                On-Time Rate
+              </Text>
+            </View>
           </View>
         </View>
+
 
         {/* Quick App Navigation Shortcuts */}
         <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginBottom: 14 }]}>Quick Shortcuts</Text>
-        <View style={styles.shortcutsGrid}>
-          {[
-            { tab: 'attendance', label: 'Attendance', icon: 'clock' as IconName, color: theme.cyan },
-            { tab: 'payroll', label: 'Payslips', icon: 'payroll' as IconName, color: theme.primary },
-            { tab: 'leaves', label: 'Apply Leave', icon: 'leaves' as IconName, color: theme.warning },
-            { tab: 'requests', label: 'Requests', icon: 'task' as IconName, color: '#059669' },
-            { tab: 'documents', label: 'Documents', icon: 'document' as IconName, color: '#a855f7' },
-            { tab: 'chat', label: 'AI Assistant', icon: 'bot' as IconName, color: '#ec4899' },
-          ].map((item) => (
-            <TouchableOpacity
-              key={item.tab}
-              style={[styles.shortcutItem, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
-              onPress={() => onNavigate(item.tab)}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.shortcutIconBg, { backgroundColor: theme.isDark ? item.color + '20' : item.color + '12', borderColor: item.color + '40' }]}>
-                <Icon name={item.icon} size={22} color={item.color} />
-              </View>
-              <Text style={[styles.shortcutText, { color: theme.textPrimary }]}>{item.label}</Text>
-            </TouchableOpacity>
-          ))}
+        <View style={[styles.shortcutsContainer, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+          <View style={styles.shortcutsGrid}>
+            {[
+              { tab: 'attendance', label: 'Attendance', icon: 'clock' as IconName },
+              { tab: 'payroll', label: 'Payslips', icon: 'receipt-cutoff' as IconName },
+              { tab: 'leaves', label: 'Apply Leave', icon: 'leaves' as IconName },
+              { tab: 'requests', label: 'Requests', icon: 'task' as IconName },
+              { tab: 'documents', label: 'Documents', icon: 'document' as IconName },
+              { tab: 'chat', label: 'AI Assistant', icon: 'bot' as IconName },
+            ].map((item) => (
+              <TouchableOpacity
+                key={item.tab}
+                style={styles.shortcutItem}
+                onPress={() => onNavigate(item.tab)}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.shortcutIconBg,
+                    {
+                      backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9',
+                      borderColor: theme.cardBorder,
+                    },
+                  ]}
+                >
+                  <Icon name={item.icon} size={22} color={theme.textPrimary} />
+                </View>
+                <Text style={[styles.shortcutText, { color: theme.textPrimary }]} numberOfLines={1}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         {/* Next Upcoming Holiday Banner */}
-        <View style={[styles.holidayBanner, { backgroundColor: theme.isDark ? 'rgba(2, 132, 199, 0.12)' : '#e0f2fe', borderColor: theme.isDark ? 'rgba(2, 132, 199, 0.3)' : '#bae6fd' }]}>
-          <View style={[styles.holidayIconBg, { backgroundColor: theme.isDark ? 'rgba(249, 115, 22, 0.2)' : '#ffedd5' }]}>
+        <View style={[styles.holidayBanner, { backgroundColor: theme.isDark ? theme.primary + '18' : theme.primary + '12', borderColor: theme.isDark ? theme.primary + '40' : theme.primary + '30' }]}>
+          <View style={[styles.holidayIconBg, { backgroundColor: theme.isDark ? theme.accent + '25' : theme.accentSoft }]}>
             <Icon name="holiday" size={20} color={theme.accent} />
           </View>
           <View style={{ flex: 1 }}>
@@ -423,10 +553,11 @@ export function HomeScreen({ theme, onNavigate }: HomeScreenProps) {
               {upcomingHoliday ? `${upcomingHoliday.date} • ${upcomingHoliday.description || upcomingHoliday.type || 'Public Holiday'}` : 'No upcoming holiday'}
             </Text>
           </View>
-          <TouchableOpacity style={[styles.viewHolidayBtn, { backgroundColor: theme.cyan }]} onPress={() => onNavigate('holidays')} activeOpacity={0.85}>
+          <TouchableOpacity style={[styles.viewHolidayBtn, { backgroundColor: theme.primary }]} onPress={() => onNavigate('holidays')} activeOpacity={0.85}>
             <Text style={styles.viewHolidayText}>View All</Text>
           </TouchableOpacity>
         </View>
+
       </ScrollView>
 
       {/* Face Biometric Enrollment Camera Modal */}
@@ -507,74 +638,139 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     paddingTop: 16,
-    paddingBottom: 36,
+    paddingBottom: 110,
   },
-  heroCard: {
-    borderRadius: 24,
-    padding: 20,
+
+
+  unifiedHeroCard: {
+    borderRadius: 22,
     borderWidth: 1,
+    overflow: 'hidden',
     marginBottom: 24,
     ...SHADOWS.md,
+  },
+  cardBannerContainer: {
+    width: '100%',
+    aspectRatio: 3 / 1,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  cardBannerImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  cardBannerOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.38)',
+  },
+  cardBannerContent: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    justifyContent: 'space-between',
+  },
+  cardBodyContainer: {
+    padding: 16,
+    paddingTop: 14,
   },
   heroHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
   },
   shiftBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
     borderWidth: 1,
+    maxWidth: '65%',
   },
   shiftText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
   },
+  dateBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
   heroDate: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  heroGreetingContent: {
+    justifyContent: 'flex-end',
+    gap: 2,
   },
   greetingTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    marginBottom: 4,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#ffffff',
+    letterSpacing: -0.2,
+    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+    textShadowOffset: { width: 0, height: 1.5 },
+    textShadowRadius: 4,
   },
   greetingSub: {
-    fontSize: 13,
-    marginBottom: 18,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#f8fafc',
+    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
-  punchWidget: {
+  statusLocationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 14,
-    borderRadius: 18,
-    borderWidth: 1,
+    gap: 4,
+    marginTop: 3,
+    marginBottom: 14,
+  },
+  fullWidthActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    width: '100%',
+    paddingVertical: 13,
+    borderRadius: 16,
+    ...SHADOWS.sm,
+  },
+  fullWidthActionBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   statusLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1,
   },
   statusValue: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
-    marginVertical: 2,
+    marginVertical: 3,
   },
   locationDetail: {
-    fontSize: 11,
+    fontSize: 12.5,
   },
   quickPunchBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
     borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -584,7 +780,7 @@ const styles = StyleSheet.create({
   },
   quickPunchText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 14.5,
     fontWeight: '800',
   },
   sectionHeaderRow: {
@@ -594,89 +790,92 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
   dropdownPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
     borderWidth: 1,
   },
   dropdownText: {
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '600',
   },
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
     marginBottom: 24,
   },
   statCard: {
-    width: (width - 42) / 2,
+    width: (width - 44) / 2,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    ...SHADOWS.sm,
-  },
-  statCardLeft: {
-    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderWidth: 1.5,
   },
   statIconBadge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    borderWidth: 1.2,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  statInfoCol: {
+    marginLeft: 10,
+    flex: 1,
+    justifyContent: 'center',
+  },
   statNumber: {
-    fontSize: 17,
+    fontSize: 16.5,
     fontWeight: '800',
+    letterSpacing: -0.2,
   },
   statLabel: {
-    fontSize: 11,
-    marginTop: 1,
+    fontSize: 11.5,
+    fontWeight: '600',
+    marginTop: 2,
   },
-  lottieAnim: {
-    width: 48,
-    height: 48,
+  shortcutsContainer: {
+    borderRadius: 22,
+    borderWidth: 1,
+    paddingVertical: 18,
+    paddingHorizontal: 6,
+    marginBottom: 24,
+    ...SHADOWS.sm,
   },
   shortcutsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 24,
+    rowGap: 16,
   },
   shortcutItem: {
-    width: (width - 56) / 3,
+    width: '33.333%',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    ...SHADOWS.sm,
+    justifyContent: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 4,
   },
   shortcutIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 1.2,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
   shortcutText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -687,54 +886,54 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1,
     marginBottom: 24,
-    gap: 12,
+    gap: 14,
   },
   holidayIconBg: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     justifyContent: 'center',
     alignItems: 'center',
   },
   holidayTitle: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
   },
   holidayDate: {
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '600',
     marginTop: 2,
   },
   viewHolidayBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 12,
   },
   viewHolidayText: {
     color: '#ffffff',
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '800',
   },
   biometricCard: {
     borderRadius: 22,
     borderWidth: 1.5,
-    padding: 16,
+    padding: 18,
     marginBottom: 20,
     ...SHADOWS.md,
   },
   biometricCardHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
+    gap: 14,
     marginBottom: 14,
   },
   biometricIconContainer: {
     position: 'relative',
   },
   biometricIconOuterRing: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
@@ -743,9 +942,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     right: 0,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
     borderWidth: 1.5,
     borderColor: '#ffffff',
   },
@@ -758,28 +957,28 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   biometricCardTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.2,
   },
   pendingPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 3.5,
     borderRadius: 10,
     borderWidth: 1,
   },
   pendingPillText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
   biometricCardSub: {
-    fontSize: 12,
-    marginTop: 2,
-    lineHeight: 17,
+    fontSize: 13.5,
+    marginTop: 3,
+    lineHeight: 18,
   },
   enrollBtn: {
-    height: 42,
+    height: 46,
     borderRadius: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -789,10 +988,11 @@ const styles = StyleSheet.create({
   },
   enrollBtnText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
+
   promptModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',

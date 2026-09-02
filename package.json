@@ -10,14 +10,25 @@
     "test": "jest"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.3.1",
+    "@fortawesome/free-regular-svg-icons": "^7.3.1",
+    "@fortawesome/free-solid-svg-icons": "^7.3.1",
+    "@fortawesome/react-native-fontawesome": "^1.0.0",
     "@react-native-async-storage/async-storage": "^3.1.1",
     "@react-native-community/geolocation": "^3.4.0",
     "@react-native/new-app-screen": "0.86.2",
+    "@types/react-native-vector-icons": "^6.4.18",
+    "dotenv": "^17.4.2",
     "lottie-react-native": "^7.3.8",
+    "lucide-react-native": "^1.38.0",
     "react": "19.2.3",
+    "react-icons": "^5.7.0",
     "react-native": "0.86.2",
+    "react-native-bootstrap-icons": "^1.5.0",
     "react-native-image-picker": "^8.2.1",
-    "react-native-safe-area-context": "^5.5.2"
+    "react-native-safe-area-context": "^5.5.2",
+    "react-native-svg": "^15.15.5",
+    "react-native-vector-icons": "^10.3.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

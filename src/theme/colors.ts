@@ -112,3 +112,6 @@ export const SHADOWS = {
     elevation: 5,
   },
 };
+
+export * from './palettes';
+

@@ -126,11 +126,12 @@ export function LoginScreen({ theme, onLogin }: LoginScreenProps) {
 
               {/* Submit Action Button */}
               <TouchableOpacity
-                style={styles.signInBtn}
+                style={[styles.signInBtn, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
                 onPress={handleSignIn}
                 disabled={loading}
                 activeOpacity={0.85}
               >
+
                 {loading ? (
                   <ActivityIndicator color="#ffffff" size="small" />
                 ) : (

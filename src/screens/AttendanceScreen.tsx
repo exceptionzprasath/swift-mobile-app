@@ -1012,11 +1012,12 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                   <Text style={styles.applyBtnText}>Apply Leave</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.applyBtn, { backgroundColor: '#0284c7' }]}
+                  style={[styles.applyBtn, { backgroundColor: theme.primary }]}
                   onPress={() => setApplyModalType('permission')}
                 >
                   <Text style={styles.applyBtnText}>Apply Permission</Text>
                 </TouchableOpacity>
+
               </View>
             </View>
 
@@ -1086,31 +1087,31 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                         </View>
 
                         {item.isWeekoff ? (
-                          <View style={[styles.statusBadgePill, { backgroundColor: '#0284c7' }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.primary }]}>
                             <Text style={styles.statusBadgePillText}>Weekoff</Text>
                           </View>
                         ) : item.holidayEntry ? (
-                          <View style={[styles.statusBadgePill, { backgroundColor: '#0891b2' }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.cyan }]}>
                             <Text style={styles.statusBadgePillText} numberOfLines={1}>
                               {item.holidayEntry.name}
                             </Text>
                           </View>
                         ) : item.leaveEntry ? (
-                          <View style={[styles.statusBadgePill, { backgroundColor: '#e11d48' }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.accent }]}>
                             <Text style={styles.statusBadgePillText} numberOfLines={1}>
                               {item.leaveEntry.type}
                             </Text>
                           </View>
                         ) : (
-                          <View style={[styles.timingsPill, { backgroundColor: '#e2e8f0' }]}>
-                            <Text style={styles.timingsPillText} numberOfLines={1}>
+                          <View style={[styles.timingsPill, { backgroundColor: theme.inputBg }]}>
+                            <Text style={[styles.timingsPillText, { color: theme.textSecondary }]} numberOfLines={1}>
                               {item.timingsStr}
                             </Text>
                           </View>
                         )}
 
                         {item.effectiveHoursStr && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: '#4d7c0f' }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.success }]}>
                             <Text style={styles.statusBadgePillText}>
                               {item.effectiveHoursStr}
                             </Text>
@@ -1118,7 +1119,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                         )}
 
                         {item.earlyComingStr && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: '#0284c7' }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.primary }]}>
                             <Text style={styles.statusBadgePillText}>
                               Early: {item.earlyComingStr}
                             </Text>
@@ -1126,7 +1127,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                         )}
 
                         {item.lateComingStr && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: '#ea580c' }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.warning }]}>
                             <Text style={styles.statusBadgePillText}>
                               Late: {item.lateComingStr}
                             </Text>
@@ -1134,7 +1135,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                         )}
 
                         {item.excessStayStr && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: '#0284c7' }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.primary }]}>
                             <Text style={styles.statusBadgePillText}>
                               Excess: {item.excessStayStr}
                             </Text>
@@ -1142,13 +1143,13 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                         )}
 
                         {item.hasValidation && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: '#854d0e' }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.accent }]}>
                             <Text style={styles.statusBadgePillText}>Validated</Text>
                           </View>
                         )}
 
                         {item.effectiveHoursStr && !item.isWeekoff && !item.leaveEntry && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: '#15803d' }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.success }]}>
                             <Text style={styles.statusBadgePillText}>Present</Text>
                           </View>
                         )}
@@ -1160,7 +1161,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
             </View>
 
             {/* MONTHLY DETAILS SECTION */}
-            <Text style={[styles.sectionHeader, { color: '#7c3aed', marginTop: 18, marginBottom: 8 }]}>
+            <Text style={[styles.sectionHeader, { color: theme.primary, marginTop: 18, marginBottom: 8 }]}>
               Monthly Details
             </Text>
 
@@ -1173,9 +1174,10 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                 <Text style={[styles.tableHeaderCell, { flex: 1 }]}>Difference</Text>
               </View>
               <View style={styles.tableDataRow}>
-                <Text style={[styles.tableDataCell, { flex: 1, color: '#0284c7', fontWeight: '800' }]}>
+                <Text style={[styles.tableDataCell, { flex: 1, color: theme.primary, fontWeight: '800' }]}>
                   {monthlyMetrics.excessStay}
                 </Text>
+
                 <Text style={[styles.tableDataCell, { flex: 1, color: '#ef4444', fontWeight: '800' }]}>
                   {monthlyMetrics.shortfall}
                 </Text>
@@ -1298,14 +1300,14 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
               {selectedDayDetails?.earlyComingStr && (
                 <View style={styles.modalDetailRow}>
                   <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Early Arrival:</Text>
-                  <Text style={[styles.modalDetailValue, { color: '#0284c7', fontWeight: '800' }]}>{selectedDayDetails?.earlyComingStr}</Text>
+                  <Text style={[styles.modalDetailValue, { color: theme.primary, fontWeight: '800' }]}>{selectedDayDetails?.earlyComingStr}</Text>
                 </View>
               )}
 
               {selectedDayDetails?.lateComingStr && (
                 <View style={styles.modalDetailRow}>
                   <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Late Arrival:</Text>
-                  <Text style={[styles.modalDetailValue, { color: '#ea580c', fontWeight: '800' }]}>
+                  <Text style={[styles.modalDetailValue, { color: theme.warning, fontWeight: '800' }]}>
                     ⚠️ Late by {selectedDayDetails?.lateComingStr}
                   </Text>
                 </View>
@@ -1314,9 +1316,10 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
               {selectedDayDetails?.excessStayStr && (
                 <View style={styles.modalDetailRow}>
                   <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Excess Stay / OT:</Text>
-                  <Text style={[styles.modalDetailValue, { color: '#0284c7', fontWeight: '800' }]}>{selectedDayDetails?.excessStayStr}</Text>
+                  <Text style={[styles.modalDetailValue, { color: theme.primary, fontWeight: '800' }]}>{selectedDayDetails?.excessStayStr}</Text>
                 </View>
               )}
+
 
               {selectedDayDetails?.shortfallStr && (
                 <View style={styles.modalDetailRow}>
@@ -1572,8 +1575,9 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 30,
+    paddingBottom: 110,
   },
+
   clockCard: {
     borderRadius: 18,
     padding: 20,

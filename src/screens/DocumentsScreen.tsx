@@ -1307,7 +1307,8 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
               const isGroupVerification = groupTitle.toLowerCase().includes('verification');
 
               const groupHeaderBg = isGroupOnboarding
-                ? theme.isDark ? 'rgba(3, 105, 161, 0.15)' : '#e0f2fe'
+                ? theme.isDark ? theme.primary + '25' : theme.tealSoft
+
                 : isGroupProbation
                 ? theme.isDark ? 'rgba(217, 119, 6, 0.15)' : '#fef3c7'
                 : isGroupMovement
@@ -1482,10 +1483,11 @@ export function DocumentsScreen({ theme }: DocumentsScreenProps) {
                                 </View>
                               )}
                               {doc.allowEmployeeRequest && (
-                                <View style={[styles.attrBadge, { backgroundColor: '#e0f2fe' }]}>
-                                  <Text style={[styles.attrBadgeText, { color: '#0369a1' }]}>📝 Requestable</Text>
+                                <View style={[styles.attrBadge, { backgroundColor: theme.isDark ? theme.primary + '25' : theme.tealSoft }]}>
+                                  <Text style={[styles.attrBadgeText, { color: theme.primary }]}>📝 Requestable</Text>
                                 </View>
                               )}
+
                             </View>
 
                             {/* Request status banner if exists */}
@@ -2271,8 +2273,10 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 110,
   },
+
+
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',

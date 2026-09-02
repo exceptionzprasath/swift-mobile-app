@@ -10,8 +10,9 @@ import {
   RefreshControl,
   Dimensions,
 } from 'react-native';
-import { ThemeColors, SHADOWS } from '../theme/colors';
+import { ThemeColors, SHADOWS, COLOR_PALETTES, getPaletteById, PaletteDefinition } from '../theme/colors';
 import { Icon } from '../components/Icon';
+import { ThemePaletteModal } from '../components/ThemePaletteModal';
 import { useAppContext, EmployeeDocument, FamilyMember, EducationEntry, ExperienceEntry } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
@@ -19,16 +20,27 @@ const { width } = Dimensions.get('window');
 interface ProfileScreenProps {
   theme: ThemeColors;
   onToggleTheme: () => void;
+  selectedPaletteId?: string;
+  onSelectPalette?: (paletteId: string) => void;
   onLogout: () => void;
 }
 
+
 type ProfileSectionTab = 'work' | 'personal' | 'statutory' | 'history' | 'documents';
 
-export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenProps) {
+export function ProfileScreen({
+  theme,
+  onToggleTheme,
+  selectedPaletteId = 'default',
+  onSelectPalette,
+  onLogout,
+}: ProfileScreenProps) {
   const { currentUser, employees, companyConfig, refreshData } = useAppContext();
   const [activeTab, setActiveTab] = useState<ProfileSectionTab>('work');
   const [refreshing, setRefreshing] = useState(false);
   const [showMaskedData, setShowMaskedData] = useState(false);
+  const [showPaletteModal, setShowPaletteModal] = useState(false);
+
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -157,175 +169,207 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
         />
       }
     >
-      {/* Profile Header Hero Card */}
-      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-        <View style={styles.headerTopRow}>
-          <View style={[styles.statusBadge, { backgroundColor: theme.isDark ? 'rgba(16, 185, 129, 0.15)' : '#dcfce7', borderColor: '#10b981' }]}>
-            <View style={[styles.statusDot, { backgroundColor: '#10b981' }]} />
-            <Text style={[styles.statusText, { color: theme.isDark ? '#4ade80' : '#15803d' }]}>
-              {currentUser?.status ? currentUser.status.toUpperCase() : 'ACTIVE'} • FULL-TIME
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.refreshChip, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}
-            onPress={onRefresh}
-            activeOpacity={0.7}
-          >
-            <Icon name="history" size={12} color={theme.primary} />
-            <Text style={[styles.refreshText, { color: theme.primary }]}>Realtime Sync</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.avatarSection}>
-          <View
-            style={[styles.avatarLarge, { backgroundColor: theme.primary, borderColor: theme.cardBorder }]}
-          >
+      {/* 1. TOP PROFILE HERO CARD (White Background with Theme-Based Border) */}
+      <View
+        style={[
+          styles.heroCard,
+          {
+            backgroundColor: theme.isDark ? theme.card : '#ffffff',
+            borderColor: theme.primary,
+          },
+        ]}
+      >
+        {/* Top Row: Avatar on Left, Two Stacked Pills on Right */}
+        <View style={styles.heroTopRow}>
+          {/* Avatar on Top Left */}
+          <View style={[styles.heroAvatarCircle, { backgroundColor: theme.primary }]}>
             {currentUser?.photoDataUrl ? (
-              <Image source={{ uri: currentUser.photoDataUrl }} style={styles.avatarImageLarge} resizeMode="cover" />
+              <Image source={{ uri: currentUser.photoDataUrl }} style={styles.heroAvatarImage} resizeMode="cover" />
             ) : (
-              <Text style={styles.avatarText}>{initial}</Text>
+              <Text style={[styles.heroAvatarInitial, { color: '#ffffff' }]}>{initial}</Text>
             )}
           </View>
 
-          <Text style={[styles.name, { color: theme.textPrimary }]}>{currentUser?.name || 'Employee'}</Text>
-          <Text style={[styles.role, { color: theme.textMuted }]}>
-            {currentUser?.designation || 'Team Member'} • <Text style={{ color: theme.primary, fontWeight: '700' }}>{currentUser?.department || 'General'}</Text>
-          </Text>
+          {/* Stacked Pills on Top Right */}
+          <View style={styles.heroTopRightStack}>
+            {/* Pill 1: Status */}
+            <View
+              style={[
+                styles.heroPillTop,
+                {
+                  backgroundColor: theme.isDark ? 'rgba(16, 185, 129, 0.15)' : '#dcfce7',
+                },
+              ]}
+            >
+              <View style={[styles.heroStatusDot, { backgroundColor: '#10b981' }]} />
+              <Text style={[styles.heroPillTextTop, { color: theme.isDark ? '#4ade80' : '#15803d' }]}>
+                {currentUser?.status ? currentUser.status.toUpperCase() : 'ACTIVE'} • FULL-TIME
+              </Text>
+            </View>
 
-          <View style={styles.metaRow}>
-            <View style={[styles.empIdTag, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-              <Icon name="shield" size={12} color={theme.primary} />
-              <Text style={[styles.empIdText, { color: theme.textPrimary }]}>
+            {/* Pill 2: Realtime Sync */}
+            <TouchableOpacity
+              style={[
+                styles.heroPillBottom,
+                {
+                  backgroundColor: theme.inputBg,
+                  borderColor: theme.cardBorder,
+                },
+              ]}
+              onPress={onRefresh}
+              activeOpacity={0.75}
+            >
+              <Icon name="history" size={12} color={theme.primary} />
+              <Text style={[styles.heroPillTextBottom, { color: theme.primary }]}>Realtime Sync</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Bottom Row: Name & Role on Left, 2 Mini Info Boxes on Right */}
+        <View style={styles.heroBottomRow}>
+          {/* Bottom Left: Name & Role */}
+          <View style={styles.heroNameCol}>
+            <Text style={[styles.heroNameText, { color: theme.textPrimary }]} numberOfLines={1}>
+              {currentUser?.name || 'Employee'}
+            </Text>
+            <Text style={[styles.heroRoleText, { color: theme.textMuted }]} numberOfLines={1}>
+              {currentUser?.designation || 'Team Member'} • <Text style={{ color: theme.primary, fontWeight: '700' }}>{currentUser?.department || 'General'}</Text>
+            </Text>
+          </View>
+
+          {/* Bottom Right: 2 Stacked Info Boxes */}
+          <View style={styles.heroInfoBoxesCol}>
+            <View
+              style={[
+                styles.heroInfoBox,
+                {
+                  backgroundColor: theme.inputBg,
+                  borderColor: theme.cardBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.heroInfoBoxText, { color: theme.textPrimary }]} numberOfLines={1}>
                 ID: {currentUser?.empCode || currentUser?.code || currentUser?.id || 'EMP'}
               </Text>
             </View>
 
-            {currentUser?.bloodGroup ? (
-              <View style={[styles.empIdTag, { backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.15)' : '#fee2e2', borderColor: '#fca5a5' }]}>
-                <Text style={[styles.empIdText, { color: '#dc2626', fontWeight: '800' }]}>
-                  🩸 {currentUser.bloodGroup}
-                </Text>
-              </View>
-            ) : null}
-
-            {currentUser?.gender ? (
-              <View style={[styles.empIdTag, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-                <Text style={[styles.empIdText, { color: theme.textMuted, textTransform: 'capitalize' }]}>
-                  {currentUser.gender}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
-
-        {/* Verification Status Highlights Bar */}
-        <View style={[styles.verifyHighlightsBar, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
-          <View style={styles.verifyItem}>
-            <View style={[styles.verifyIconCircle, { backgroundColor: isFaceEnrolled ? (theme.isDark ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7') : (theme.isDark ? 'rgba(245, 158, 11, 0.2)' : '#fef3c7') }]}>
-              <Icon name={isFaceEnrolled ? 'check' : 'camera'} size={12} color={isFaceEnrolled ? '#16a34a' : '#d97706'} />
+            <View
+              style={[
+                styles.heroInfoBox,
+                {
+                  backgroundColor: theme.inputBg,
+                  borderColor: theme.cardBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.heroInfoBoxText, { color: theme.textPrimary }]} numberOfLines={1}>
+                {currentUser?.bloodGroup ? `🩸 ${currentUser.bloodGroup}` : `Branch: ${branches.find((b: any) => b.id === currentUser?.branchId)?.name || 'Main'}`}
+              </Text>
             </View>
-            <Text style={[styles.verifyLabel, { color: theme.textMuted }]}>Face ID</Text>
-            <Text style={[styles.verifyStatus, { color: isFaceEnrolled ? '#16a34a' : '#d97706' }]}>
-              {isFaceEnrolled ? 'Enrolled' : 'Pending'}
-            </Text>
-          </View>
-
-          <View style={[styles.verifyDivider, { backgroundColor: theme.cardBorder }]} />
-
-          <View style={styles.verifyItem}>
-            <View style={[styles.verifyIconCircle, { backgroundColor: theme.isDark ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7' }]}>
-              <Icon name="document" size={12} color="#16a34a" />
-            </View>
-            <Text style={[styles.verifyLabel, { color: theme.textMuted }]}>Onboarding</Text>
-            <Text style={[styles.verifyStatus, { color: '#16a34a' }]}>
-              {documentsList.length > 0 ? 'Verified' : 'Active'}
-            </Text>
-          </View>
-
-          <View style={[styles.verifyDivider, { backgroundColor: theme.cardBorder }]} />
-
-          <View style={styles.verifyItem}>
-            <View style={[styles.verifyIconCircle, { backgroundColor: (currentUser?.bankAcc || currentUser?.bankAccount || currentUser?.bankName) ? (theme.isDark ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7') : (theme.isDark ? 'rgba(245, 158, 11, 0.2)' : '#fef3c7') }]}>
-              <Icon name="wallet" size={12} color={(currentUser?.bankAcc || currentUser?.bankAccount || currentUser?.bankName) ? '#16a34a' : '#d97706'} />
-            </View>
-            <Text style={[styles.verifyLabel, { color: theme.textMuted }]}>Bank Linked</Text>
-            <Text style={[styles.verifyStatus, { color: (currentUser?.bankAcc || currentUser?.bankAccount || currentUser?.bankName) ? '#16a34a' : '#d97706' }]}>
-              {(currentUser?.bankAcc || currentUser?.bankAccount || currentUser?.bankName) ? 'Active' : 'Unlinked'}
-            </Text>
-          </View>
-
-          <View style={[styles.verifyDivider, { backgroundColor: theme.cardBorder }]} />
-
-          <View style={styles.verifyItem}>
-            <View style={[styles.verifyIconCircle, { backgroundColor: theme.isDark ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7' }]}>
-              <Icon name="shield" size={12} color="#16a34a" />
-            </View>
-            <Text style={[styles.verifyLabel, { color: theme.textMuted }]}>Compliance</Text>
-            <Text style={[styles.verifyStatus, { color: '#16a34a' }]}>
-              {currentUser?.backgroundCheckStatus === 'clear' || currentUser?.policeVerification ? 'Clear' : 'Verified'}
-            </Text>
           </View>
         </View>
       </View>
 
-      {/* Navigation Segment Tabs */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabsScroll}
-        contentContainerStyle={styles.tabsContainer}
-      >
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'work' && { backgroundColor: theme.primary, borderColor: theme.primary }]}
-          onPress={() => setActiveTab('work')}
-        >
-          <Icon name="home" size={13} color={activeTab === 'work' ? '#ffffff' : theme.textMuted} />
-          <Text style={[styles.tabButtonText, { color: activeTab === 'work' ? '#ffffff' : theme.textMuted }]}>
-            Work & Org
+      {/* 2. MIDDLE QUICK METRIC STRIP (Divided Bar from Wireframe) */}
+      <View style={[styles.metricStripCard, { backgroundColor: theme.card }]}>
+        <View style={styles.metricColumn}>
+          <View style={[styles.metricIconCircle, { backgroundColor: isFaceEnrolled ? (theme.isDark ? 'rgba(16, 185, 129, 0.18)' : '#dcfce7') : (theme.isDark ? 'rgba(245, 158, 11, 0.18)' : '#fef3c7') }]}>
+            <Icon name={isFaceEnrolled ? 'check' : 'camera'} size={12} color={isFaceEnrolled ? '#16a34a' : '#d97706'} />
+          </View>
+          <Text style={[styles.metricMainText, { color: isFaceEnrolled ? '#16a34a' : '#d97706' }]}>
+            {isFaceEnrolled ? 'Enrolled' : 'Pending'}
           </Text>
-        </TouchableOpacity>
+          <Text style={[styles.metricLabelText, { color: theme.textMuted }]}>Face ID</Text>
+        </View>
 
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'personal' && { backgroundColor: theme.primary, borderColor: theme.primary }]}
-          onPress={() => setActiveTab('personal')}
-        >
-          <Icon name="user" size={13} color={activeTab === 'personal' ? '#ffffff' : theme.textMuted} />
-          <Text style={[styles.tabButtonText, { color: activeTab === 'personal' ? '#ffffff' : theme.textMuted }]}>
-            Personal & Address
-          </Text>
-        </TouchableOpacity>
+        <View style={[styles.metricVerticalDivider, { backgroundColor: theme.cardBorder }]} />
 
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'statutory' && { backgroundColor: theme.primary, borderColor: theme.primary }]}
-          onPress={() => setActiveTab('statutory')}
-        >
-          <Icon name="wallet" size={13} color={activeTab === 'statutory' ? '#ffffff' : theme.textMuted} />
-          <Text style={[styles.tabButtonText, { color: activeTab === 'statutory' ? '#ffffff' : theme.textMuted }]}>
-            Bank & Statutory
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.metricColumn}>
+          <View style={[styles.metricIconCircle, { backgroundColor: theme.isDark ? 'rgba(56, 189, 248, 0.18)' : '#e0f2fe' }]}>
+            <Icon name="calendar" size={12} color={theme.primary} />
+          </View>
+          <Text style={[styles.metricMainText, { color: theme.primary }]}>Active</Text>
+          <Text style={[styles.metricLabelText, { color: theme.textMuted }]}>Leaves</Text>
+        </View>
 
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'history' && { backgroundColor: theme.primary, borderColor: theme.primary }]}
-          onPress={() => setActiveTab('history')}
-        >
-          <Icon name="calendar" size={13} color={activeTab === 'history' ? '#ffffff' : theme.textMuted} />
-          <Text style={[styles.tabButtonText, { color: activeTab === 'history' ? '#ffffff' : theme.textMuted }]}>
-            Education & Exp
-          </Text>
-        </TouchableOpacity>
+        <View style={[styles.metricVerticalDivider, { backgroundColor: theme.cardBorder }]} />
 
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'documents' && { backgroundColor: theme.primary, borderColor: theme.primary }]}
-          onPress={() => setActiveTab('documents')}
-        >
-          <Icon name="document" size={13} color={activeTab === 'documents' ? '#ffffff' : theme.textMuted} />
-          <Text style={[styles.tabButtonText, { color: activeTab === 'documents' ? '#ffffff' : theme.textMuted }]}>
-            Documents ({documentsList.length})
+        <View style={styles.metricColumn}>
+          <View style={[styles.metricIconCircle, { backgroundColor: theme.isDark ? 'rgba(16, 185, 129, 0.18)' : '#dcfce7' }]}>
+            <Icon name="document" size={12} color="#16a34a" />
+          </View>
+          <Text style={[styles.metricMainText, { color: '#16a34a' }]}>
+            {documentsList.length > 0 ? 'Verified' : 'Active'}
           </Text>
-        </TouchableOpacity>
-      </ScrollView>
+          <Text style={[styles.metricLabelText, { color: theme.textMuted }]}>Onboarding</Text>
+        </View>
+
+        <View style={[styles.metricVerticalDivider, { backgroundColor: theme.cardBorder }]} />
+
+        <View style={styles.metricColumn}>
+          <View style={[styles.metricIconCircle, { backgroundColor: (currentUser?.bankAcc || currentUser?.bankAccount || currentUser?.bankName) ? (theme.isDark ? 'rgba(16, 185, 129, 0.18)' : '#dcfce7') : (theme.isDark ? 'rgba(245, 158, 11, 0.18)' : '#fef3c7') }]}>
+            <Icon name="wallet" size={12} color={(currentUser?.bankAcc || currentUser?.bankAccount || currentUser?.bankName) ? '#16a34a' : '#d97706'} />
+          </View>
+          <Text style={[styles.metricMainText, { color: (currentUser?.bankAcc || currentUser?.bankAccount || currentUser?.bankName) ? '#16a34a' : '#d97706' }]}>
+            {(currentUser?.bankAcc || currentUser?.bankAccount || currentUser?.bankName) ? 'Linked' : 'Pending'}
+          </Text>
+          <Text style={[styles.metricLabelText, { color: theme.textMuted }]}>Salary A/C</Text>
+        </View>
+      </View>
+
+      {/* 3. SEGMENTED TAB SWITCHER (Horizontal Capsule Strip from Wireframe) */}
+      <View style={[styles.segmentedPillContainer, { backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.05)' : theme.inputBg, borderColor: theme.cardBorder }]}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.segmentedPillScroll}
+        >
+          {[
+            { id: 'work', label: 'Work & Org', icon: 'home' },
+            { id: 'personal', label: 'Personal Details', icon: 'user' },
+            { id: 'statutory', label: 'Bank & Statutory', icon: 'wallet' },
+            { id: 'history', label: 'Education & Exp', icon: 'calendar' },
+            { id: 'documents', label: `Documents (${documentsList.length})`, icon: 'document' },
+          ].map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                style={[
+                  styles.segmentedPillBtn,
+                  isActive && {
+                    backgroundColor: theme.primary,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.12,
+                    shadowRadius: 4,
+                    elevation: 2,
+                  },
+                ]}
+                onPress={() => setActiveTab(tab.id as ProfileSectionTab)}
+                activeOpacity={0.75}
+              >
+                <Icon
+                  name={tab.icon as any}
+                  size={12}
+                  color={isActive ? '#ffffff' : theme.textMuted}
+                />
+                <Text
+                  style={[
+                    styles.segmentedPillText,
+                    {
+                      color: isActive ? '#ffffff' : theme.textMuted,
+                      fontWeight: isActive ? '800' : '600',
+                    },
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
       {/* TAB CONTENT: Work & Organization */}
       {activeTab === 'work' && (
@@ -781,6 +825,98 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
           </Text>
         </TouchableOpacity>
 
+        {/* Color Palette Theme Option (Below Dark Mode Option) */}
+        <View
+          style={[
+            styles.paletteOptionContainer,
+            { borderTopWidth: 1, borderTopColor: theme.cardBorder, marginTop: 8, paddingTop: 12 },
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => setShowPaletteModal(true)}
+            activeOpacity={0.75}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 10 }}>
+              <Icon name="sparkles" size={18} color={theme.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.settingLabel, { color: theme.textPrimary }]}>Color Theme Palette</Text>
+                <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 1 }} numberOfLines={1}>
+                  {getPaletteById(selectedPaletteId).name} • {getPaletteById(selectedPaletteId).vibe}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.paletteTriggerRight}>
+              <View style={styles.miniSwatchBar}>
+                {getPaletteById(selectedPaletteId).hexes.map((h, i) => (
+                  <View key={i} style={[styles.miniSwatchDot, { backgroundColor: h }]} />
+                ))}
+              </View>
+              <Text style={[styles.settingVal, { color: theme.primary, marginLeft: 6 }]}>
+                Change →
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Quick Palette Horizontal Carousel */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.quickPalettesRow}
+            style={styles.quickPalettesScroll}
+          >
+            {COLOR_PALETTES.map((p) => {
+              const isSelected = selectedPaletteId === p.id;
+              return (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[
+                    styles.quickPaletteCard,
+                    {
+                      backgroundColor: theme.inputBg,
+                      borderColor: isSelected ? theme.primary : theme.cardBorder,
+                      borderWidth: isSelected ? 2 : 1,
+                    },
+                  ]}
+                  onPress={() => onSelectPalette && onSelectPalette(p.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.quickSwatchRow}>
+                    {p.hexes.map((hex, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.quickSwatchSegment,
+                          {
+                            backgroundColor: hex,
+                            borderTopLeftRadius: i === 0 ? 4 : 0,
+                            borderBottomLeftRadius: i === 0 ? 4 : 0,
+                            borderTopRightRadius: i === 4 ? 4 : 0,
+                            borderBottomRightRadius: i === 4 ? 4 : 0,
+                          },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <View style={styles.quickTitleRow}>
+                    <Text
+                      style={[
+                        styles.quickPaletteName,
+                        { color: isSelected ? theme.primary : theme.textPrimary, fontWeight: isSelected ? '800' : '600' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {p.name}
+                    </Text>
+                    {isSelected && <Icon name="check" size={10} color={theme.primary} />}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         <View
           style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: theme.cardBorder, marginTop: 8, paddingTop: 12 }]}
         >
@@ -822,9 +958,21 @@ export function ProfileScreen({ theme, onToggleTheme, onLogout }: ProfileScreenP
         <Icon name="logout" size={16} color={theme.danger} />
         <Text style={[styles.logoutBtnText, { color: theme.danger }]}>Log Out of Account</Text>
       </TouchableOpacity>
+
+      {/* 20 Curated Themes Modal */}
+      <ThemePaletteModal
+        visible={showPaletteModal}
+        theme={theme}
+        selectedPaletteId={selectedPaletteId}
+        onSelectPalette={(id) => {
+          if (onSelectPalette) onSelectPalette(id);
+        }}
+        onClose={() => setShowPaletteModal(false)}
+      />
     </ScrollView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -832,172 +980,188 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 110,
   },
+
+  // 1. HERO CARD (White Background with Theme-Based Border)
   heroCard: {
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    marginBottom: 16,
-    ...SHADOWS.sm,
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  headerTopRow: {
+  heroTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
-  statusBadge: {
+  heroAvatarCircle: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  heroAvatarImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+  },
+  heroAvatarInitial: {
+    fontSize: 32,
+    fontWeight: '900',
+  },
+  heroTopRightStack: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  heroPillTop: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 5.5,
+    borderRadius: 20,
   },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  heroStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#10b981',
   },
-  statusText: {
-    fontSize: 10,
+  heroPillTextTop: {
+    fontSize: 10.5,
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
-  refreshChip: {
+  heroPillBottom: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 5.5,
+    borderRadius: 20,
     borderWidth: 1,
   },
-  refreshText: {
+  heroPillTextBottom: {
     fontSize: 11,
     fontWeight: '700',
   },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: 16,
+  heroBottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginTop: 2,
   },
-  avatarLarge: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    borderWidth: 3,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-    position: 'relative',
-    ...SHADOWS.md,
+  heroNameCol: {
+    flex: 1,
+    marginRight: 12,
   },
-  avatarText: {
-    color: '#ffffff',
-    fontSize: 36,
+  heroNameText: {
+    fontSize: 21,
     fontWeight: '900',
+    letterSpacing: -0.3,
   },
-  avatarImageLarge: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  heroRoleText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    marginTop: 3,
   },
-  cameraBadge: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
+  heroInfoBoxesCol: {
+    gap: 6,
+    alignItems: 'flex-end',
+  },
+  heroInfoBox: {
+    paddingHorizontal: 10,
+    paddingVertical: 5.5,
+    borderRadius: 9,
+    minWidth: 80,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  heroInfoBoxText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  // 2. MIDDLE QUICK METRIC STRIP
+  metricStripCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderWidth: 0,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  metricColumn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricIconCircle: {
     width: 26,
     height: 26,
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#ffffff',
-  },
-  name: {
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: -0.3,
-  },
-  role: {
-    fontSize: 13,
-    marginTop: 2,
-    marginBottom: 10,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    justifyContent: 'center',
-  },
-  empIdTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  empIdText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  verifyHighlightsBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    borderWidth: 1,
-  },
-  verifyItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  verifyIconCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 3,
   },
-  verifyLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  verifyStatus: {
-    fontSize: 11,
+  metricMainText: {
+    fontSize: 11.5,
     fontWeight: '800',
+  },
+  metricLabelText: {
+    fontSize: 9.5,
+    fontWeight: '600',
     marginTop: 1,
   },
-  verifyDivider: {
+  metricVerticalDivider: {
     width: 1,
-    height: 28,
+    height: 32,
+    opacity: 0.6,
   },
-  tabsScroll: {
+
+  // 3. SEGMENTED TAB SWITCHER
+  segmentedPillContainer: {
+    borderRadius: 14,
+    borderWidth: 0,
+    padding: 3.5,
     marginBottom: 16,
   },
-  tabsContainer: {
-    gap: 8,
+  segmentedPillScroll: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 2,
   },
-  tabButton: {
+  segmentedPillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: 13,
     paddingVertical: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    borderRadius: 11,
   },
-  tabButtonText: {
+  segmentedPillText: {
     fontSize: 12,
-    fontWeight: '700',
   },
   sectionTitle: {
     fontSize: 15,
@@ -1160,4 +1324,57 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
+  paletteOptionContainer: {
+    marginBottom: 4,
+  },
+  paletteTriggerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  miniSwatchBar: {
+    flexDirection: 'row',
+    gap: 2,
+    padding: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  miniSwatchDot: {
+    width: 9,
+    height: 14,
+    borderRadius: 2,
+  },
+  quickPalettesScroll: {
+    marginTop: 10,
+    marginBottom: 2,
+  },
+  quickPalettesRow: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  quickPaletteCard: {
+    borderRadius: 12,
+    padding: 8,
+    width: 130,
+  },
+  quickSwatchRow: {
+    flexDirection: 'row',
+    height: 12,
+    borderRadius: 4,
+    marginBottom: 6,
+    overflow: 'hidden',
+  },
+  quickSwatchSegment: {
+    flex: 1,
+    height: '100%',
+  },
+  quickTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  quickPaletteName: {
+    fontSize: 11,
+    flex: 1,
+  },
 });
+

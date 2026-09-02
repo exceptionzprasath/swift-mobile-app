@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Modal,
   Linking,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
@@ -90,6 +91,36 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
+  const [breakdownTab, setBreakdownTab] = useState<'earnings' | 'deductions'>('earnings');
+  const [segmentedWidth, setSegmentedWidth] = useState(0);
+  const tabSlideAnim = useRef(new Animated.Value(0)).current;
+  const tabFadeAnim = useRef(new Animated.Value(1)).current;
+
+  const handleSwitchTab = (tab: 'earnings' | 'deductions') => {
+    if (tab === breakdownTab) return;
+    Animated.spring(tabSlideAnim, {
+      toValue: tab === 'earnings' ? 0 : 1,
+      useNativeDriver: true,
+      damping: 18,
+      stiffness: 220,
+      mass: 0.7,
+    }).start();
+
+    Animated.sequence([
+      Animated.timing(tabFadeAnim, {
+        toValue: 0.2,
+        duration: 80,
+        useNativeDriver: true,
+      }),
+      Animated.timing(tabFadeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    setBreakdownTab(tab);
+  };
 
   // Available Months List (Dynamic current + last 5 months)
   const availableMonths = useMemo(() => {
@@ -278,146 +309,256 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
       >
         {/* Month Selector Header */}
         <View style={styles.monthHeader}>
-          <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Payroll &amp; Salary Slips</Text>
-
+          <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Payroll</Text>
           <TouchableOpacity
-            style={[styles.monthBadge, { backgroundColor: theme.tealSoft, borderColor: theme.primaryLight }]}
+            style={[styles.monthBadge, { backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : theme.card, borderColor: theme.cardBorder }]}
             onPress={() => setMonthPickerOpen(true)}
             activeOpacity={0.8}
           >
-            <Icon name="leaves" size={12} color={theme.primary} />
-            <Text style={[styles.monthBadgeText, { color: theme.primary }]}>{selectedMonthObj.label} ▾</Text>
+            <Icon name="calendar" size={13} color={theme.textPrimary} />
+            <Text style={[styles.monthBadgeText, { color: theme.textPrimary }]}>{selectedMonthObj.label}</Text>
+            <Icon name="chevron-down" size={11} color={theme.textMuted} />
           </TouchableOpacity>
         </View>
 
-        {/* Net Salary Hero Card */}
-        <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-          <View style={styles.heroTop}>
-            <View>
-              <Text style={[styles.heroLabel, { color: theme.textMuted }]}>
-                Net Salary ({currentUser?.name || 'Employee'})
+        {/* 1. TOP CARD: Solid Vibrant Theme Color-Filled Salary Overview Card */}
+        <View style={[styles.heroCardFilled, { backgroundColor: theme.primary }]}>
+          {/* Header row in hero */}
+          <View style={styles.heroHeader}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={styles.heroHeaderTitleFilled}>
+                Salary Overview
               </Text>
-              <Text style={[styles.heroAmount, { color: theme.success }]}>
-                {formatInr(payrollComputation.net)}
+              <Text style={styles.heroHeaderSubtitleFilled} numberOfLines={1}>
+                {currentUser?.name || 'Employee'} • {currentUser?.empCode || 'EMP001'}
               </Text>
             </View>
-            <View style={[styles.paidChip, { backgroundColor: payrollComputation.isProcessed ? theme.successSoft : theme.tealSoft }]}>
-              <Text style={[styles.paidChipText, { color: payrollComputation.isProcessed ? theme.success : theme.primary }]}>
-                {payrollComputation.isProcessed ? 'STATUS: CREDITED' : 'STATUS: COMPUTED'}
+            <View style={styles.statusBadgeFilled}>
+              <View style={styles.statusDotFilled} />
+              <Text style={styles.statusBadgeTextFilled}>
+                {payrollComputation.isProcessed ? 'Credited' : 'Computed'}
               </Text>
             </View>
           </View>
 
-          <Text style={[styles.bankDetail, { color: theme.textMuted }]}>
-            Target Account: {currentUser?.bankAccount || (currentUser?.bankAcc ? `Bank A/C: ${currentUser.bankAcc}` : 'Registered Bank Account')}
-          </Text>
-
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TouchableOpacity
-              style={[styles.downloadPdfBtn, { backgroundColor: theme.primary, flex: 1 }]}
-              onPress={() => setPayslipModalOpen(true)}
-              activeOpacity={0.8}
-            >
-              <Icon name="document" size={16} color="#ffffff" />
-              <Text style={styles.downloadPdfText}>View Official Payslip</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.downloadPdfBtn, { backgroundColor: theme.cyan, paddingHorizontal: 14 }]}
-              onPress={handleDownloadPDF}
-              activeOpacity={0.8}
-            >
-              <Icon name="download" size={16} color="#ffffff" />
-              <Text style={styles.downloadPdfText}>PDF</Text>
-            </TouchableOpacity>
+          {/* Prominent Amount Display Box in middle of card */}
+          <View style={[styles.amountDisplayBoxFilled, { backgroundColor: theme.primaryDark }]}>
+            <Text style={styles.amountBoxLabelFilled}>
+              Net Take-Home Salary
+            </Text>
+            <Text style={styles.amountBoxValueFilled}>
+              {formatInr(payrollComputation.net)}
+            </Text>
+            <Text style={styles.amountBoxWordsFilled} numberOfLines={1}>
+              {numberToWordsIndian(payrollComputation.net)}
+            </Text>
           </View>
-        </View>
 
-        {/* Salary Structure Breakdown */}
-        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
-          Itemized Salary Breakdown ({selectedMonthObj.label})
-        </Text>
-        <View style={styles.breakdownGrid}>
-          {/* Earnings Card */}
-          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <View style={[styles.cardHeader, { borderBottomColor: theme.cardBorder }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Icon name="check" size={14} color={theme.success} />
-                <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Earnings</Text>
-              </View>
-              <Text style={[styles.cardTotal, { color: theme.success }]}>
-                {formatInr(payrollComputation.gross)}
+          {/* Bottom row: Indicators on Left, 2 Action Pill Buttons on Right */}
+          <View style={styles.heroBottomRow}>
+            <View style={styles.heroMetaLeft}>
+              <Text style={styles.heroMetaTextFilled}>
+                Days: <Text style={{ color: '#ffffff', fontWeight: '800' }}>{payrollComputation.daysWorked}d</Text>
               </Text>
-            </View>
-
-            {payrollComputation.earningsList.map((item: any) => (
-              <View key={item.id} style={styles.row}>
-                <Text style={[styles.rowLabel, { color: theme.textMuted }]}>{item.name}</Text>
-                <Text style={[styles.rowVal, { color: item.id === 'ot' ? theme.accent : theme.textPrimary }]}>
-                  {item.id === 'ot' ? '+' : ''}{formatInr(item.amount)}
+              {payrollComputation.otHours > 0 && (
+                <Text style={[styles.heroMetaTextFilled, { color: '#fef08a', fontWeight: '800' }]}>
+                  • {payrollComputation.otHours}h OT
                 </Text>
-              </View>
-            ))}
-          </View>
-
-          {/* Deductions Card */}
-          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <View style={[styles.cardHeader, { borderBottomColor: theme.cardBorder }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Icon name="cross" size={14} color={theme.danger} />
-                <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Deductions</Text>
-              </View>
-              <Text style={[styles.cardTotal, { color: theme.danger }]}>
-                -{formatInr(payrollComputation.totalDeductions)}
-              </Text>
+              )}
             </View>
 
-            {payrollComputation.deductions.employeePF > 0 && (
-              <View style={styles.row}>
-                <Text style={[styles.rowLabel, { color: theme.textMuted }]}>Provident Fund (Employee PF)</Text>
-                <Text style={[styles.rowVal, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.employeePF)}</Text>
-              </View>
-            )}
+            <View style={styles.heroActionButtons}>
+              <TouchableOpacity
+                style={styles.heroActionBtnFilledWhite}
+                onPress={() => setPayslipModalOpen(true)}
+                activeOpacity={0.8}
+              >
+                <Icon name="receipt-cutoff" size={13} color={theme.primary} />
+                <Text style={[styles.heroActionBtnTextFilledWhite, { color: theme.primary }]}>Payslip</Text>
+              </TouchableOpacity>
 
-            {payrollComputation.deductions.employeeESI > 0 && (
-              <View style={styles.row}>
-                <Text style={[styles.rowLabel, { color: theme.textMuted }]}>Employee State Insurance (ESI)</Text>
-                <Text style={[styles.rowVal, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.employeeESI)}</Text>
-              </View>
-            )}
-
-            {payrollComputation.deductions.professionalTax > 0 && (
-              <View style={styles.row}>
-                <Text style={[styles.rowLabel, { color: theme.textMuted }]}>Professional Tax (PT)</Text>
-                <Text style={[styles.rowVal, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.professionalTax)}</Text>
-              </View>
-            )}
-
-            {payrollComputation.deductions.tds > 0 && (
-              <View style={styles.row}>
-                <Text style={[styles.rowLabel, { color: theme.textMuted }]}>Income Tax (TDS)</Text>
-                <Text style={[styles.rowVal, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.tds)}</Text>
-              </View>
-            )}
-
-            {(payrollComputation.deductions as any).loanEmi > 0 && (
-              <View style={styles.row}>
-                <Text style={[styles.rowLabel, { color: '#059669', fontWeight: '600' }]}>Advance Salary Loan (EMI)</Text>
-                <Text style={[styles.rowVal, { color: theme.danger, fontWeight: '700' }]}>-{formatInr((payrollComputation.deductions as any).loanEmi)}</Text>
-              </View>
-            )}
-
-            {payrollComputation.totalDeductions === 0 && (
-              <View style={styles.row}>
-                <Text style={[styles.rowLabel, { color: theme.textMuted, fontStyle: 'italic' }]}>No active statutory deductions</Text>
-                <Text style={[styles.rowVal, { color: theme.textMuted }]}>₹0</Text>
-              </View>
-            )}
+              <TouchableOpacity
+                style={[styles.heroActionBtnFilledDark, { backgroundColor: theme.primaryDark }]}
+                onPress={handleDownloadPDF}
+                activeOpacity={0.8}
+              >
+                <Icon name="download" size={13} color="#ffffff" />
+                <Text style={styles.heroActionBtnTextFilledDark}>PDF</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        {/* Previous Payslips History List */}
-        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Monthly Payslip Archives</Text>
+        {/* 2. MIDDLE CARD (Animated Segmented Breakdown Card) */}
+        <View style={[styles.breakdownCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+          {/* Segmented Pill Switcher with Smooth Slide Animation */}
+          <View
+            onLayout={(e) => setSegmentedWidth(e.nativeEvent.layout.width)}
+            style={[
+              styles.segmentedContainer,
+              {
+                backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : theme.inputBg,
+                borderColor: theme.cardBorder,
+              },
+            ]}
+          >
+            {segmentedWidth > 0 && (
+              <Animated.View
+                style={[
+                  styles.slidingSegmentPill,
+                  {
+                    width: (segmentedWidth - 8) / 2,
+                    backgroundColor: theme.card,
+                    borderColor: theme.cardBorder,
+                    transform: [
+                      {
+                        translateX: tabSlideAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, (segmentedWidth - 8) / 2],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              />
+            )}
+
+            <TouchableOpacity
+              style={styles.segmentBtn}
+              onPress={() => handleSwitchTab('earnings')}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.segmentBtnText,
+                  { color: theme.textMuted },
+                  breakdownTab === 'earnings' && { color: theme.textPrimary, fontWeight: '800' },
+                ]}
+              >
+                Earnings ({formatInr(payrollComputation.gross)})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.segmentBtn}
+              onPress={() => handleSwitchTab('deductions')}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.segmentBtnText,
+                  { color: theme.textMuted },
+                  breakdownTab === 'deductions' && { color: theme.textPrimary, fontWeight: '800' },
+                ]}
+              >
+                Deductions ({formatInr(payrollComputation.totalDeductions)})
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Line Items List with Smooth Fade Animation */}
+          <Animated.View style={[styles.itemList, { opacity: tabFadeAnim }]}>
+            {breakdownTab === 'earnings' ? (
+              <>
+                {payrollComputation.earningsList.map((item: any, idx: number) => (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.itemRow,
+                      idx < payrollComputation.earningsList.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' },
+                    ]}
+                  >
+                    <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>{item.name}</Text>
+                    <Text style={[styles.itemValue, { color: item.id === 'ot' ? theme.accent : theme.textPrimary }]}>
+                      {item.id === 'ot' ? '+' : ''}{formatInr(item.amount)}
+                    </Text>
+                  </View>
+                ))}
+
+                <View style={[styles.subtotalRow, { backgroundColor: theme.isDark ? 'rgba(16, 185, 129, 0.08)' : '#f0fdf4', borderColor: theme.isDark ? 'rgba(16, 185, 129, 0.2)' : '#bbf7d0' }]}>
+                  <Text style={[styles.subtotalLabel, { color: theme.textPrimary }]}>Total Gross Earnings</Text>
+                  <Text style={[styles.subtotalValue, { color: theme.success }]}>
+                    {formatInr(payrollComputation.gross)}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                {payrollComputation.deductions.employeePF > 0 && (
+                  <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
+                    <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>Provident Fund (PF)</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.employeePF)}</Text>
+                  </View>
+                )}
+
+                {payrollComputation.deductions.employeeESI > 0 && (
+                  <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
+                    <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>Employee State Insurance (ESI)</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.employeeESI)}</Text>
+                  </View>
+                )}
+
+                {payrollComputation.deductions.professionalTax > 0 && (
+                  <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
+                    <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>Professional Tax (PT)</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.professionalTax)}</Text>
+                  </View>
+                )}
+
+                {payrollComputation.deductions.tds > 0 && (
+                  <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
+                    <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>Income Tax (TDS)</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.tds)}</Text>
+                  </View>
+                )}
+
+                {(payrollComputation.deductions as any).loanEmi > 0 && (
+                  <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
+                    <Text style={[styles.itemLabel, { color: '#059669', fontWeight: '600' }]}>Advance Salary Loan (EMI)</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger, fontWeight: '700' }]}>-{formatInr((payrollComputation.deductions as any).loanEmi)}</Text>
+                  </View>
+                )}
+
+                {payrollComputation.totalDeductions === 0 && (
+                  <View style={styles.itemRow}>
+                    <Text style={[styles.itemLabel, { color: theme.textMuted, fontStyle: 'italic' }]}>No active statutory deductions</Text>
+                    <Text style={[styles.itemValue, { color: theme.textMuted }]}>₹0</Text>
+                  </View>
+                )}
+
+                <View style={[styles.subtotalRow, { backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.08)' : '#fef2f2', borderColor: theme.isDark ? 'rgba(239, 68, 68, 0.2)' : '#fecaca' }]}>
+                  <Text style={[styles.subtotalLabel, { color: theme.textPrimary }]}>Total Statutory Deductions</Text>
+                  <Text style={[styles.subtotalValue, { color: theme.danger }]}>
+                    -{formatInr(payrollComputation.totalDeductions)}
+                  </Text>
+                </View>
+              </>
+            )}
+          </Animated.View>
+        </View>
+
+        {/* 3. SUBTLE HORIZONTAL DIVIDER */}
+        <View style={[styles.dividerLine, { backgroundColor: theme.cardBorder }]} />
+
+        {/* 4. BOTTOM CARD (Annual CTC & Account Summary Banner from Wireframe) */}
+        <View style={[styles.bottomCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+          <View style={styles.bottomCardLeft}>
+            <Text style={[styles.bottomCardTitle, { color: theme.textPrimary }]}>
+              Annual CTC Package
+            </Text>
+            <Text style={[styles.bottomCardSubtitle, { color: theme.textMuted }]} numberOfLines={1}>
+              Disbursement: {currentUser?.bankAccount || (currentUser?.bankAcc ? `A/C ${currentUser.bankAcc}` : 'Registered Bank Transfer')}
+            </Text>
+          </View>
+          <View style={[styles.ctcBadge, { backgroundColor: theme.isDark ? 'rgba(16, 185, 129, 0.15)' : theme.successSoft, borderColor: theme.success }]}>
+            <Text style={[styles.ctcBadgeText, { color: theme.success }]}>
+              ₹{annualCtcLpa} LPA
+            </Text>
+          </View>
+        </View>
+
+        {/* 5. MONTHLY ARCHIVES LIST */}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 24 }]}>Monthly Payslip Archives</Text>
         {availableMonths.slice(1).map((mObj) => {
           const matchRun = (payrolls || []).find(
             (p: any) =>
@@ -434,34 +575,18 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
               </View>
 
               <TouchableOpacity
-                style={[styles.historyPdfBtn, { backgroundColor: theme.cyanSoft, borderColor: theme.cyan }]}
+                style={[styles.historyPdfBtn, { backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9', borderColor: theme.cardBorder }]}
                 onPress={() => {
                   setSelectedMonthObj(mObj);
                   setPayslipModalOpen(true);
                 }}
               >
-                <Icon name="document" size={14} color={theme.cyan} />
-                <Text style={[styles.historyPdfIcon, { color: theme.cyan }]}>View Slip</Text>
+                <Icon name="receipt-cutoff" size={13} color={theme.textPrimary} />
+                <Text style={[styles.historyPdfIcon, { color: theme.textPrimary }]}>View Slip</Text>
               </TouchableOpacity>
             </View>
           );
         })}
-
-        {/* Salary Revision Log */}
-        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Salary Revision History</Text>
-        <View style={[styles.revisionCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-          <View style={styles.revisionRow}>
-            <View>
-              <Text style={[styles.revisionTitle, { color: theme.textPrimary }]}>Annual CTC Compensation</Text>
-              <Text style={[styles.revisionDate, { color: theme.textMuted }]}>
-                Joined: {currentUser?.joiningDate || currentUser?.doj || 'Active'}
-              </Text>
-            </View>
-            <Text style={[styles.revisionAmount, { color: theme.success }]}>
-              ₹{annualCtcLpa} LPA
-            </Text>
-          </View>
-        </View>
       </ScrollView>
 
       {/* MODAL 1: MONTH SELECTION MODAL */}
@@ -732,8 +857,10 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 30,
+    paddingBottom: 110,
   },
+
+
   monthHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -743,107 +870,246 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: '800',
+    letterSpacing: -0.3,
   },
   monthBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: 14,
     borderWidth: 1,
   },
   monthBadgeText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '700',
   },
-  heroCard: {
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    marginBottom: 24,
+  heroCardFilled: {
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 16,
     ...SHADOWS.md,
   },
-  heroTop: {
+  heroHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    marginBottom: 14,
   },
-  heroLabel: {
+  heroHeaderTitleFilled: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.2,
+  },
+  heroHeaderSubtitleFilled: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.82)',
+    marginTop: 2,
+  },
+  statusBadgeFilled: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  statusDotFilled: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ffffff',
+  },
+  statusBadgeTextFilled: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: 0.3,
+  },
+  amountDisplayBoxFilled: {
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+  },
+  amountBoxLabelFilled: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.85)',
+    letterSpacing: 0.3,
+  },
+  amountBoxValueFilled: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+    marginVertical: 3,
+  },
+  amountBoxWordsFilled: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontStyle: 'italic',
+  },
+  heroBottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  heroMetaLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  heroMetaTextFilled: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  heroActionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  heroActionBtnFilledWhite: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+  },
+  heroActionBtnTextFilledWhite: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  heroActionBtnFilledDark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 14,
+  },
+  heroActionBtnTextFilledDark: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+  breakdownCard: {
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    ...SHADOWS.sm,
+  },
+  segmentedContainer: {
+    flexDirection: 'row',
+    position: 'relative',
+    padding: 3.5,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  slidingSegmentPill: {
+    position: 'absolute',
+    top: 3.5,
+    left: 4,
+    bottom: 3.5,
+    borderRadius: 11,
+    borderWidth: 1,
+    ...SHADOWS.sm,
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  segmentBtnText: {
     fontSize: 12,
     fontWeight: '600',
   },
-  heroAmount: {
-    fontSize: 30,
-    fontWeight: '900',
-    marginVertical: 4,
+  itemList: {
+    gap: 2,
   },
-  paidChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  paidChipText: {
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  bankDetail: {
-    fontSize: 11,
-    marginBottom: 16,
-  },
-  downloadPdfBtn: {
+  itemRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 14,
-    gap: 8,
+    paddingVertical: 10,
   },
-  downloadPdfText: {
-    color: '#ffffff',
+  itemLabel: {
     fontSize: 13,
+    fontWeight: '500',
+  },
+  itemValue: {
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  subtotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  subtotalLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  subtotalValue: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  dividerLine: {
+    height: 1,
+    marginVertical: 18,
+  },
+  bottomCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    ...SHADOWS.sm,
+  },
+  bottomCardLeft: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  bottomCardTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  bottomCardSubtitle: {
+    fontSize: 11.5,
+    marginTop: 2,
+  },
+  ctcBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  ctcBadgeText: {
+    fontSize: 12,
     fontWeight: '800',
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '800',
     marginBottom: 12,
-  },
-  breakdownGrid: {
-    gap: 12,
-    marginBottom: 24,
-  },
-  card: {
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-  },
-  cardTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  cardTotal: {
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 5,
-  },
-  rowLabel: {
-    fontSize: 12,
-  },
-  rowVal: {
-    fontSize: 12,
-    fontWeight: '700',
   },
   historyCard: {
     flexDirection: 'row',
