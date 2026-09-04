@@ -501,6 +501,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
   const firstDayOfWeek = new Date(selectedYear, selectedMonth, 1).getDay();
 
   const monthDaysList = useMemo(() => {
+    const todayStr = `${todayYearNum}-${String(todayMonthNum + 1).padStart(2, '0')}-${String(todayDateNum).padStart(2, '0')}`;
     return Array.from({ length: daysInSelectedMonthCount }, (_, i) => {
       const dayNum = i + 1;
       const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
@@ -516,23 +517,44 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
       const shiftStartMins = parseTimeToMinutes(shiftStart);
       const shiftEndMins = parseTimeToMinutes(shiftEnd);
       const targetDurationMins = shiftStartMins >= 0 && shiftEndMins >= 0 ? (shiftEndMins - shiftStartMins) : 450;
-      let inMins = -1, outMins = -1, effectiveMins = 0, earlyComingMins = 0, lateComingMins = 0, excessStayMins = 0, shortfallMins = 0, timingsStr = '--';
-      if (existingRec?.clockIn) {
-        inMins = parseTimeToMinutes(existingRec.clockIn);
-        const inFmt = format12Hour(existingRec.clockIn);
+      
+      const graceSetting = rosterEntry?.graceTime || currentUser?.graceTime || assignedShift.graceTime || '15';
+      const morningGraceMins = graceSetting === 'always' ? 9999 : (parseInt(graceSetting, 10) || 15);
+      const morningCutoffMins = shiftStartMins >= 0 ? shiftStartMins + morningGraceMins : -1;
 
-        // Calculate early vs late check-in against scheduled shift start
+      let inMins = -1, outMins = -1, effectiveMins = 0, earlyComingMins = 0, lateComingMins = 0, excessStayMins = 0, shortfallMins = 0, timingsStr = '--';
+      let isLateBeyondGrace = false;
+      let isEarlyCheckout = false;
+      let earlyCheckoutMins = 0;
+
+      const rawIn = existingRec?.clockIn || existingRec?.checkIn;
+      const rawOut = existingRec?.clockOut || existingRec?.checkOut;
+
+      if (rawIn) {
+        inMins = parseTimeToMinutes(rawIn);
+        const inFmt = format12Hour(rawIn);
+
+        // Calculate early arrival vs late check-in against scheduled shift start and grace cutoff
         if (shiftStartMins >= 0 && inMins >= 0) {
           if (inMins < shiftStartMins) {
             earlyComingMins = shiftStartMins - inMins;
           } else if (inMins > shiftStartMins) {
             lateComingMins = inMins - shiftStartMins;
           }
+          if (morningCutoffMins >= 0 && inMins > morningCutoffMins) {
+            isLateBeyondGrace = true;
+          }
+        }
+        if (existingRec.punctuality === 'late' || existingRec.status === 'late') {
+          isLateBeyondGrace = true;
+          if (lateComingMins === 0 && existingRec.lateBy) {
+            lateComingMins = existingRec.lateBy;
+          }
         }
 
-        if (existingRec.clockOut) {
-          outMins = parseTimeToMinutes(existingRec.clockOut);
-          const outFmt = format12Hour(existingRec.clockOut);
+        if (rawOut) {
+          outMins = parseTimeToMinutes(rawOut);
+          const outFmt = format12Hour(rawOut);
           timingsStr = `${inFmt} - ${outFmt}`;
           if (inMins >= 0 && outMins >= 0) {
             let diff = outMins - inMins;
@@ -542,8 +564,22 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
             else if (shiftEndMins >= 0 && outMins > shiftEndMins) excessStayMins = outMins - shiftEndMins;
             if (diff < targetDurationMins) shortfallMins = targetDurationMins - diff;
           }
+
+          // Check if checked out before allocated shift end time
+          if (shiftEndMins >= 0 && outMins >= 0 && outMins < shiftEndMins) {
+            isEarlyCheckout = true;
+            earlyCheckoutMins = shiftEndMins - outMins;
+          }
         } else {
-          timingsStr = `${inFmt} - Active`;
+          const isToday = dateStr === todayStr;
+          const currentHour = new Date().getHours();
+          const isMissedCheckoutPastCutoff = !isToday || currentHour >= 22 || Boolean(existingRec.isAutoClosed || existingRec.isMissedCheckout);
+          if (isMissedCheckoutPastCutoff) {
+            isEarlyCheckout = true;
+            timingsStr = `${inFmt} - Missed Out`;
+          } else {
+            timingsStr = `${inFmt} - Active`;
+          }
         }
       } else if (leaveEntry) {
         timingsStr = leaveEntry.type || 'On Leave';
@@ -552,31 +588,69 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
       } else if (isWeekoff) {
         timingsStr = 'Weekoff';
       }
+
       const formatMinsToHHMM = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+      
+      const isPastDay = dateStr < todayStr;
+
+      let primaryStatus: 'weekoff' | 'holiday' | 'leave' | 'absent_late' | 'absent_early' | 'absent_both' | 'absent_unmarked' | 'present' | 'active' | 'none' = 'none';
+      if (isWeekoff) {
+        primaryStatus = 'weekoff';
+      } else if (holidayEntry) {
+        primaryStatus = 'holiday';
+      } else if (leaveEntry) {
+        primaryStatus = 'leave';
+      } else if (rawIn) {
+        if (existingRec?.status === 'present') {
+          primaryStatus = 'present';
+        } else if (existingRec?.status === 'half-day') {
+          primaryStatus = 'absent_late';
+        } else if (isLateBeyondGrace && isEarlyCheckout) {
+          primaryStatus = 'absent_both';
+        } else if (isLateBeyondGrace) {
+          primaryStatus = 'absent_late';
+        } else if (isEarlyCheckout) {
+          primaryStatus = 'absent_early';
+        } else {
+          primaryStatus = 'present';
+        }
+      } else if (isPastDay) {
+        primaryStatus = 'absent_unmarked';
+      }
+
       return {
         day: dayNum,
         dateStr,
         dayOfWeek,
         shiftName,
+        shiftStart,
+        shiftEnd,
+        graceSetting,
+        morningGraceMins,
         timingsStr,
         isWeekoff,
         holidayEntry,
         leaveEntry,
         existingRec,
+        primaryStatus,
+        isLateBeyondGrace,
+        isEarlyCheckout,
+        earlyCheckoutMins,
         effectiveHoursStr: effectiveMins > 0 ? formatMinsToHHMM(effectiveMins) : null,
         earlyComingStr: earlyComingMins > 0 ? formatMinsToHHMM(earlyComingMins) : null,
-        lateComingStr: (lateComingMins > 0 || existingRec?.status === 'late') ? (lateComingMins > 0 ? formatMinsToHHMM(lateComingMins) : 'Late') : null,
-        excessStayStr: excessStayMins > 0 ? formatMinsToHHMM(excessStayMins) : null,
+        lateComingStr: (lateComingMins > 0 || isLateBeyondGrace) ? (lateComingMins > 0 ? formatMinsToHHMM(lateComingMins) : 'Late') : null,
+        earlyOutStr: earlyCheckoutMins > 0 ? formatMinsToHHMM(earlyCheckoutMins) : null,
+        excessStayStr: (existingRec?.otHours && Number(existingRec.otHours) > 0) ? `+${existingRec.otHours} hrs` : (excessStayMins > 0 ? formatMinsToHHMM(excessStayMins) : null),
         shortfallStr: shortfallMins > 0 ? formatMinsToHHMM(shortfallMins) : null,
         effectiveMins,
         earlyComingMins,
         lateComingMins,
         excessStayMins,
         shortfallMins,
-        hasValidation: Boolean(existingRec?.faceVerified || existingRec?.clockOut),
+        hasValidation: Boolean(existingRec?.faceVerified || rawOut || existingRec?.regularized),
       };
     });
-  }, [selectedYear, selectedMonth, userLogs, roster, holidays, leaves, currentUser, assignedShift, daysInSelectedMonthCount]);
+  }, [selectedYear, selectedMonth, userLogs, roster, holidays, leaves, currentUser, assignedShift, daysInSelectedMonthCount, todayYearNum, todayMonthNum, todayDateNum]);
 
   const calendarWeeks = useMemo(() => {
     const padBefore = firstDayOfWeek; // 0: Sun, 1: Mon, ..., 6: Sat
@@ -1086,71 +1160,94 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                           </Text>
                         </View>
 
-                        {item.isWeekoff ? (
+                        {/* Primary Status Banner Pill */}
+                        {item.primaryStatus === 'weekoff' ? (
                           <View style={[styles.statusBadgePill, { backgroundColor: theme.primary }]}>
                             <Text style={styles.statusBadgePillText}>Weekoff</Text>
                           </View>
-                        ) : item.holidayEntry ? (
+                        ) : item.primaryStatus === 'holiday' ? (
                           <View style={[styles.statusBadgePill, { backgroundColor: theme.cyan }]}>
                             <Text style={styles.statusBadgePillText} numberOfLines={1}>
-                              {item.holidayEntry.name}
+                              {item.holidayEntry?.name || 'Holiday'}
                             </Text>
                           </View>
-                        ) : item.leaveEntry ? (
+                        ) : item.primaryStatus === 'leave' ? (
                           <View style={[styles.statusBadgePill, { backgroundColor: theme.accent }]}>
                             <Text style={styles.statusBadgePillText} numberOfLines={1}>
-                              {item.leaveEntry.type}
+                              {item.leaveEntry?.type || 'Leave'}
                             </Text>
                           </View>
-                        ) : (
-                          <View style={[styles.timingsPill, { backgroundColor: theme.inputBg }]}>
-                            <Text style={[styles.timingsPillText, { color: theme.textSecondary }]} numberOfLines={1}>
-                              {item.timingsStr}
-                            </Text>
+                        ) : item.primaryStatus === 'absent_both' ? (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#ef4444' }]}>
+                            <Text style={styles.statusBadgePillText}>Absent</Text>
                           </View>
-                        )}
+                        ) : item.primaryStatus === 'absent_late' ? (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#ea580c' }]}>
+                            <Text style={styles.statusBadgePillText}>Half Day</Text>
+                          </View>
+                        ) : item.primaryStatus === 'absent_early' ? (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#ea580c' }]}>
+                            <Text style={styles.statusBadgePillText}>Half Day</Text>
+                          </View>
+                        ) : item.primaryStatus === 'absent_unmarked' ? (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#ef4444' }]}>
+                            <Text style={styles.statusBadgePillText}>Absent</Text>
+                          </View>
+                        ) : item.primaryStatus === 'present' ? (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#10b981' }]}>
+                            <Text style={styles.statusBadgePillText}>Present</Text>
+                          </View>
+                        ) : null}
 
-                        {item.effectiveHoursStr && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: theme.success }]}>
-                            <Text style={styles.statusBadgePillText}>
-                              {item.effectiveHoursStr}
-                            </Text>
-                          </View>
-                        )}
+                        {/* Timings / Session tag */}
+                        <View style={[styles.timingsPill, { backgroundColor: theme.inputBg }]}>
+                          <Text style={[styles.timingsPillText, { color: theme.textSecondary }]} numberOfLines={1}>
+                            {item.timingsStr}
+                          </Text>
+                        </View>
 
-                        {item.earlyComingStr && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: theme.primary }]}>
-                            <Text style={styles.statusBadgePillText}>
-                              Early: {item.earlyComingStr}
-                            </Text>
-                          </View>
-                        )}
-
+                        {/* Late check-in tag */}
                         {item.lateComingStr && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: theme.warning }]}>
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#f97316' }]}>
                             <Text style={styles.statusBadgePillText}>
                               Late: {item.lateComingStr}
                             </Text>
                           </View>
                         )}
 
-                        {item.excessStayStr && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: theme.primary }]}>
+                        {/* Early checkout tag */}
+                        {item.earlyOutStr && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#ea580c' }]}>
                             <Text style={styles.statusBadgePillText}>
-                              Excess: {item.excessStayStr}
+                              Early Out: {item.earlyOutStr}
                             </Text>
                           </View>
                         )}
 
-                        {item.hasValidation && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: theme.accent }]}>
-                            <Text style={styles.statusBadgePillText}>Validated</Text>
+                        {/* Effective Work Time */}
+                        {item.effectiveHoursStr && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#059669' }]}>
+                            <Text style={styles.statusBadgePillText}>
+                              Work: {item.effectiveHoursStr}
+                            </Text>
                           </View>
                         )}
 
-                        {item.effectiveHoursStr && !item.isWeekoff && !item.leaveEntry && (
-                          <View style={[styles.statusBadgePill, { backgroundColor: theme.success }]}>
-                            <Text style={styles.statusBadgePillText}>Present</Text>
+                        {/* Early In Arrival */}
+                        {item.earlyComingStr && !item.lateComingStr && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: theme.primary }]}>
+                            <Text style={styles.statusBadgePillText}>
+                              Early In: {item.earlyComingStr}
+                            </Text>
+                          </View>
+                        )}
+
+                        {/* Excess Stay / Overtime */}
+                        {item.excessStayStr && (
+                          <View style={[styles.statusBadgePill, { backgroundColor: '#6366f1' }]}>
+                            <Text style={styles.statusBadgePillText}>
+                              OT: {item.excessStayStr}
+                            </Text>
                           </View>
                         )}
                       </TouchableOpacity>
@@ -1280,13 +1377,78 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
             </View>
 
             <View style={{ marginTop: 10, gap: 8 }}>
-              <View style={styles.modalDetailRow}>
-                <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Shift:</Text>
-                <Text style={[styles.modalDetailValue, { color: theme.textPrimary }]}>{selectedDayDetails?.shiftName}</Text>
+              {/* Primary Status Banner */}
+              <View
+                style={{
+                  padding: 10,
+                  borderRadius: 10,
+                  backgroundColor:
+                    selectedDayDetails?.primaryStatus === 'present'
+                      ? '#dcfce7'
+                      : selectedDayDetails?.primaryStatus === 'absent_both' || selectedDayDetails?.primaryStatus === 'absent_unmarked'
+                      ? '#fee2e2'
+                      : selectedDayDetails?.primaryStatus === 'absent_late' || selectedDayDetails?.primaryStatus === 'absent_early'
+                      ? '#ffedd5'
+                      : theme.inputBg,
+                  borderWidth: 1,
+                  borderColor:
+                    selectedDayDetails?.primaryStatus === 'present'
+                      ? '#86efac'
+                      : selectedDayDetails?.primaryStatus === 'absent_both' || selectedDayDetails?.primaryStatus === 'absent_unmarked'
+                      ? '#fca5a5'
+                      : selectedDayDetails?.primaryStatus === 'absent_late' || selectedDayDetails?.primaryStatus === 'absent_early'
+                      ? '#fdba74'
+                      : theme.cardBorder,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: '900',
+                    color:
+                      selectedDayDetails?.primaryStatus === 'present'
+                        ? '#15803d'
+                        : selectedDayDetails?.primaryStatus === 'absent_both' || selectedDayDetails?.primaryStatus === 'absent_unmarked'
+                        ? '#b91c1c'
+                        : selectedDayDetails?.primaryStatus === 'absent_late' || selectedDayDetails?.primaryStatus === 'absent_early'
+                        ? '#c2410c'
+                        : theme.textPrimary,
+                  }}
+                >
+                  {selectedDayDetails?.primaryStatus === 'present'
+                    ? '🟢 Present'
+                    : selectedDayDetails?.primaryStatus === 'absent_both'
+                    ? '🔴 Absent (Late Check-in & Early Checkout)'
+                    : selectedDayDetails?.primaryStatus === 'absent_late'
+                    ? '🟠 Half-Day (Checked in after Grace Period)'
+                    : selectedDayDetails?.primaryStatus === 'absent_early'
+                    ? '🟠 Half-Day (Checked out before Shift End)'
+                    : selectedDayDetails?.primaryStatus === 'absent_unmarked'
+                    ? '🔴 Absent (No Punch Recorded)'
+                    : selectedDayDetails?.primaryStatus === 'weekoff'
+                    ? '🏖️ Weekly Off'
+                    : selectedDayDetails?.primaryStatus === 'holiday'
+                    ? '🎉 Company Holiday'
+                    : 'Attendance Record'}
+                </Text>
               </View>
 
               <View style={styles.modalDetailRow}>
-                <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Timings:</Text>
+                <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Shift:</Text>
+                <Text style={[styles.modalDetailValue, { color: theme.textPrimary }]}>
+                  {selectedDayDetails?.shiftName} ({selectedDayDetails?.shiftStart} - {selectedDayDetails?.shiftEnd})
+                </Text>
+              </View>
+
+              <View style={styles.modalDetailRow}>
+                <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Grace Setting:</Text>
+                <Text style={[styles.modalDetailValue, { color: theme.textPrimary }]}>
+                  {selectedDayDetails?.morningGraceMins} mins morning grace
+                </Text>
+              </View>
+
+              <View style={styles.modalDetailRow}>
+                <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Punch Timings:</Text>
                 <Text style={[styles.modalDetailValue, { color: theme.textPrimary }]}>{selectedDayDetails?.timingsStr}</Text>
               </View>
 
@@ -1297,19 +1459,28 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                 </View>
               )}
 
-              {selectedDayDetails?.earlyComingStr && (
+              {selectedDayDetails?.lateComingStr && (
                 <View style={styles.modalDetailRow}>
-                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Early Arrival:</Text>
-                  <Text style={[styles.modalDetailValue, { color: theme.primary, fontWeight: '800' }]}>{selectedDayDetails?.earlyComingStr}</Text>
+                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Late Check-in:</Text>
+                  <Text style={[styles.modalDetailValue, { color: '#ea580c', fontWeight: '800' }]}>
+                    ⚠️ Late by {selectedDayDetails?.lateComingStr} (Grace Exceeded) → Marked as Half-Day
+                  </Text>
                 </View>
               )}
 
-              {selectedDayDetails?.lateComingStr && (
+              {selectedDayDetails?.earlyOutStr && (
                 <View style={styles.modalDetailRow}>
-                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Late Arrival:</Text>
-                  <Text style={[styles.modalDetailValue, { color: theme.warning, fontWeight: '800' }]}>
-                    ⚠️ Late by {selectedDayDetails?.lateComingStr}
+                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Early Checkout:</Text>
+                  <Text style={[styles.modalDetailValue, { color: '#ea580c', fontWeight: '800' }]}>
+                    ⚠️ Checked out {selectedDayDetails?.earlyOutStr} early → Marked as Half-Day
                   </Text>
+                </View>
+              )}
+
+              {selectedDayDetails?.earlyComingStr && !selectedDayDetails?.lateComingStr && (
+                <View style={styles.modalDetailRow}>
+                  <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Early Arrival:</Text>
+                  <Text style={[styles.modalDetailValue, { color: theme.primary, fontWeight: '800' }]}>{selectedDayDetails?.earlyComingStr}</Text>
                 </View>
               )}
 
@@ -1319,7 +1490,6 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                   <Text style={[styles.modalDetailValue, { color: theme.primary, fontWeight: '800' }]}>{selectedDayDetails?.excessStayStr}</Text>
                 </View>
               )}
-
 
               {selectedDayDetails?.shortfallStr && (
                 <View style={styles.modalDetailRow}>

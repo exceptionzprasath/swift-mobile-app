@@ -984,6 +984,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const checkInTime = existing.checkIn || existing.clockIn || timeStr;
       const hours = calculateHoursWorked(checkInTime, timeStr);
 
+      const todayRoster = (roster || []).find(
+        (r: any) => (r.employeeId === empId || (currentUser?.empCode && r.empCode === currentUser.empCode)) && r.date === localToday
+      );
+
+      const effectiveShiftId = todayRoster?.shiftId || currentUser?.shiftId || 'shift-1';
+      const shiftList = companyConfig?.shifts || [
+        { id: 'shift-1', name: 'General Shift 4.30', start: '09:00', end: '16:30', graceTime: '15' },
+        { id: 'shift-2', name: 'Day Shift 6.00', start: '09:00', end: '18:00', graceTime: '15' },
+      ];
+      const assignedShift = shiftList.find((s: any) => s.id === effectiveShiftId) || shiftList[0] || { start: '09:00', end: '16:30' };
+      const shiftEndStr = todayRoster?.shiftEnd || currentUser?.shiftEnd || assignedShift?.end || '16:30';
+      const [endH, endM] = shiftEndStr.split(':').map((x: string) => parseInt(x, 10) || 0);
+      const shiftEndMins = endH * 60 + endM;
+      const currentMins = d.getHours() * 60 + d.getMinutes();
+      const isEarlyOut = shiftEndMins > 0 && currentMins < shiftEndMins;
+      const earlyOutByMins = isEarlyOut ? shiftEndMins - currentMins : undefined;
+
+      let newStatus = existing.status;
+      if (isEarlyOut) {
+        newStatus = existing.status === 'late' ? 'absent' : 'halfday';
+      }
+
       updated = {
         ...existing,
         tenantId: existing.tenantId || effectiveTenantId,
@@ -998,6 +1020,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         clockIn: checkInTime,
         hoursWorked: hours,
         otHours: hours > 9 ? Math.round((hours - 9) * 10) / 10 : 0,
+        status: newStatus,
+        isEarlyOut,
+        earlyOutBy: earlyOutByMins,
         checkOutPhoto: photoToSave || existing.checkOutPhoto || undefined,
         photoDataUrl: existing.photoDataUrl || photoToSave || undefined,
       };
