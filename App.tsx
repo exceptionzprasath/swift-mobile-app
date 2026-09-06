@@ -35,6 +35,7 @@ function MainAppContent() {
   const [isDarkMode, setIsDarkMode] = useState(false); // Light theme default
   const [selectedPaletteId, setSelectedPaletteId] = useState<string>('bio_lime'); // Bio Lime default (reference dashboard theme)
   const [activeTab, setActiveTab] = useState<AppNavTab>('home');
+  const [profileInitialTab, setProfileInitialTab] = useState<any>(undefined);
   const [isSideDrawerOpen, setIsSideDrawerOpen] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
@@ -137,6 +138,7 @@ function MainAppContent() {
         return (
           <ProfileScreen
             theme={theme}
+            initialTab={profileInitialTab}
             onToggleTheme={toggleTheme}
             selectedPaletteId={selectedPaletteId}
             onSelectPalette={handleSelectPalette}
@@ -210,8 +212,11 @@ function MainAppContent() {
         visible={isSideDrawerOpen}
         theme={theme}
         onClose={() => setIsSideDrawerOpen(false)}
-        onNavigate={(tab) => {
+        onNavigate={(tab, targetTab) => {
           setIsSideDrawerOpen(false);
+          if (tab === 'profile' && targetTab) {
+            setProfileInitialTab(targetTab);
+          }
           setActiveTab(tab);
         }}
         onToggleTheme={toggleTheme}

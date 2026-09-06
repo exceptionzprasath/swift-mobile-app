@@ -150,6 +150,16 @@ export interface Employee {
     status: "pending" | "approved" | "rejected";
     comment?: string;
   };
+  geofencingEnabled?: boolean;
+  biometricEnabled?: boolean;
+  biometricMappings?: Array<{
+    id?: string;
+    deviceSn: string;
+    biometricEmpCode: string;
+    deviceName?: string;
+    branchId?: string;
+    notes?: string;
+  }>;
 }
 
 export interface EmployeeDocument {
@@ -503,6 +513,7 @@ export interface AppContextType {
   signCompanyDocument: (docCode: string, docTitle: string, signatureText: string, signatureDataUrl?: string) => Promise<boolean>;
   deleteEmployeeDocument: (docId: string) => Promise<boolean>;
   registerEmployeeFace: (photoDataUrl: string) => Promise<{ success: boolean; url?: string; error?: string }>;
+  updateEmployeeProfile: (updates: Partial<Employee>) => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -1829,6 +1840,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateEmployeeProfile = async (updates: Partial<Employee>): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      const effectiveTenant = currentUser.tenantId || tenantId || 'demo-tenant-1';
+      const updatedUser: Employee = {
+        ...currentUser,
+        ...updates,
+      };
+      setCurrentUser(updatedUser);
+      AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser)).catch(() => {});
+      setEmployees((prev) => prev.map((e) => (e.id === currentUser.id ? updatedUser : e)));
+      await mutateTable('employees', { tenantId: effectiveTenant, ...updatedUser });
+      return true;
+    } catch (e: any) {
+      console.warn('updateEmployeeProfile error:', e?.message || e);
+      return false;
+    }
+  };
+
   const d = new Date();
   const localToday = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const utcToday = d.toISOString().split('T')[0];
@@ -1897,10 +1927,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         date: params.date || new Date().toISOString().slice(0, 10),
         details: params.details || params.reason || '',
         reason: params.reason || params.details || '',
-        notes: params.notes,
         status: 'Pending',
         currentLevel: 1,
-        totalLevels: 2,
+        totalLevels: (params.category === 'profile' || (params as any).category === 'profile_update') ? 1 : 2,
         approvalType: 'sequential',
         metadata: params.metadata || {},
         createdAt: new Date().toISOString(),
@@ -1997,6 +2026,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         signCompanyDocument,
         deleteEmployeeDocument,
         registerEmployeeFace,
+        updateEmployeeProfile,
       }}
     >
       {children}

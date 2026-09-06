@@ -552,7 +552,10 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
           }
         }
 
-        if (rawOut) {
+        const isSynthetic22 = rawOut === '22:00' && Boolean(existingRec.isAutoClosed || existingRec.isMissedCheckout || (existingRec as any).autoCloseReason);
+        const hasActualOut = Boolean(rawOut) && !isSynthetic22 && !existingRec.isMissedCheckout;
+
+        if (hasActualOut) {
           outMins = parseTimeToMinutes(rawOut);
           const outFmt = format12Hour(rawOut);
           timingsStr = `${inFmt} - ${outFmt}`;
@@ -573,7 +576,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
         } else {
           const isToday = dateStr === todayStr;
           const currentHour = new Date().getHours();
-          const isMissedCheckoutPastCutoff = !isToday || currentHour >= 22 || Boolean(existingRec.isAutoClosed || existingRec.isMissedCheckout);
+          const isMissedCheckoutPastCutoff = !isToday || currentHour >= 22 || Boolean(existingRec.isAutoClosed || existingRec.isMissedCheckout || isSynthetic22);
           if (isMissedCheckoutPastCutoff) {
             isEarlyCheckout = true;
             timingsStr = `${inFmt} - Missed Out`;
@@ -603,7 +606,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
       } else if (rawIn) {
         if (existingRec?.status === 'present') {
           primaryStatus = 'present';
-        } else if (existingRec?.status === 'half-day') {
+        } else if ((existingRec?.status as any) === 'half-day' || existingRec?.status === 'halfday') {
           primaryStatus = 'absent_late';
         } else if (isLateBeyondGrace && isEarlyCheckout) {
           primaryStatus = 'absent_both';

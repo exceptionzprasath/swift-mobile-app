@@ -19,6 +19,7 @@ import { ThemeColors, getPaletteById, COLOR_PALETTES } from '../theme/colors';
 import { Icon, IconName } from './Icon';
 import { ThemePaletteModal } from './ThemePaletteModal';
 import { useAppContext, Employee } from '../context/AppContext';
+import { calculateProfileCompletion } from '../utils/profileCompletion';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(340, SCREEN_WIDTH * 0.85);
@@ -40,7 +41,7 @@ interface SideDrawerProps {
   visible: boolean;
   onClose: () => void;
   theme: ThemeColors;
-  onNavigate: (screen: any) => void;
+  onNavigate: (screen: any, targetTab?: string) => void;
   onToggleTheme: () => void;
   selectedPaletteId?: string;
   onSelectPalette?: (paletteId: string) => void;
@@ -69,7 +70,7 @@ export function SideDrawer({
   onSelectPalette,
   onLogout,
 }: SideDrawerProps) {
-  const { currentUser, companyConfig, leaves, docRequests, attendance, applyLeave, refreshData } = useAppContext();
+  const { currentUser, companyConfig, leaves, docRequests, attendance, requests, applyLeave, refreshData } = useAppContext();
   const [showPaletteModal, setShowPaletteModal] = useState(false);
   const darkBgColor = getPaletteById(selectedPaletteId).hexes[0];
 
@@ -350,6 +351,16 @@ export function SideDrawer({
   ];
 
   const initial = (currentUser?.name || 'User').charAt(0).toUpperCase();
+  const profileCompletion = React.useMemo(() => calculateProfileCompletion(currentUser), [currentUser]);
+
+  const pendingProfileRequest = React.useMemo(() => {
+    return (requests || []).find(
+      (r) =>
+        (r.employeeId === currentUser?.id || (currentUser?.empCode && r.empCode === currentUser.empCode)) &&
+        (r.category === 'profile' || (r as any).category === 'profile_update') &&
+        r.status === 'Pending'
+    );
+  }, [requests, currentUser]);
 
   type MenuItem = {
     key: SideDrawerAction;
@@ -419,29 +430,101 @@ export function SideDrawer({
                 style={styles.topStatusCard}
                 onPress={() => {
                   onClose();
-                  onNavigate('profile');
+                  onNavigate('profile', profileCompletion.firstIncompleteTab);
                 }}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
-                <View style={styles.whiteCircleBadge}>
-                  {currentUser?.photoDataUrl ? (
-                    <Image source={{ uri: currentUser.photoDataUrl }} style={styles.avatarPhoto} resizeMode="cover" />
+                <View style={styles.topStatusProfileRow}>
+                  <View style={styles.whiteCircleBadge}>
+                    {currentUser?.photoDataUrl ? (
+                      <Image source={{ uri: currentUser.photoDataUrl }} style={styles.avatarPhoto} resizeMode="cover" />
+                    ) : (
+                      <Text style={[styles.avatarInitialText, { color: darkBgColor }]}>{initial}</Text>
+                    )}
+                    <View
+                      style={[
+                        styles.badgePulseDot,
+                        { backgroundColor: profileCompletion.isComplete ? '#10b981' : '#ef4444' },
+                      ]}
+                    />
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.topStatusTitle} numberOfLines={1}>
+                      {currentUser?.name || 'Employee Profile'}
+                    </Text>
+                    <Text style={styles.topStatusSub} numberOfLines={1}>
+                      {currentUser?.designation || 'Verified Employee'} • {currentUser?.empCode || 'SW001'}
+                    </Text>
+                  </View>
+
+                  <Icon name="chevron-right" size={18} color="rgba(255, 255, 255, 0.6)" />
+                </View>
+
+                {/* Onboarding Status Red Progress Bar */}
+                <View style={styles.onboardingSection}>
+                  <View style={styles.onboardingMetaRow}>
+                    <View style={styles.onboardingTagWrap}>
+                      <View
+                        style={[
+                          styles.statusDot,
+                          { backgroundColor: profileCompletion.isComplete ? '#10b981' : '#ef4444' },
+                        ]}
+                      />
+                      <Text style={styles.onboardingTagText}>
+                        {profileCompletion.isComplete ? 'Onboarding Completed' : 'Onboarding Status'}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.onboardingPercentLabel,
+                        { color: profileCompletion.isComplete ? '#4ade80' : '#f87171' },
+                      ]}
+                    >
+                      {profileCompletion.percentage}%
+                    </Text>
+                  </View>
+
+                  {/* Red Progress Bar Track */}
+                  <View style={styles.onboardingBarTrack}>
+                    <View
+                      style={[
+                        styles.onboardingBarFill,
+                        {
+                          width: `${Math.max(8, profileCompletion.percentage)}%`,
+                          backgroundColor: profileCompletion.isComplete ? '#10b981' : '#ef4444',
+                        },
+                      ]}
+                    >
+                      <Text style={styles.onboardingBarInnerPercent}>
+                        {profileCompletion.percentage}%
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Footer hint */}
+                  {pendingProfileRequest ? (
+                    <View style={styles.onboardingActionRow}>
+                      <Text style={[styles.onboardingMissingHint, { color: '#fde047' }]} numberOfLines={1}>
+                        ⏳ Update pending Admin review & approval
+                      </Text>
+                      <Text style={[styles.onboardingArrowIcon, { color: '#fde047' }]}>→</Text>
+                    </View>
+                  ) : !profileCompletion.isComplete ? (
+                    <View style={styles.onboardingActionRow}>
+                      <Text style={styles.onboardingMissingHint} numberOfLines={1}>
+                        ⚠️ {profileCompletion.missingFields.length} incomplete fields • Tap to finish
+                      </Text>
+                      <Text style={styles.onboardingArrowIcon}>→</Text>
+                    </View>
                   ) : (
-                    <Text style={[styles.avatarInitialText, { color: darkBgColor }]}>{initial}</Text>
+                    <View style={styles.onboardingActionRow}>
+                      <Text style={[styles.onboardingMissingHint, { color: '#86efac' }]}>
+                        ✓ All profile fields verified (100%)
+                      </Text>
+                    </View>
                   )}
-                  <View style={styles.badgePulseDot} />
                 </View>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.topStatusTitle} numberOfLines={1}>
-                    {currentUser?.name || 'Employee Profile'}
-                  </Text>
-                  <Text style={styles.topStatusSub} numberOfLines={1}>
-                    {currentUser?.designation || 'Verified Employee'} • {currentUser?.empCode || 'SW001'}
-                  </Text>
-                </View>
-
-                <Icon name="chevron-right" size={18} color="rgba(255, 255, 255, 0.6)" />
               </TouchableOpacity>
 
               {/* 2x2 Core Action Grid */}
@@ -1076,16 +1159,91 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
   },
   topStatusCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.18)',
-    borderRadius: 24,
-    padding: 12,
-    paddingRight: 16,
+    borderRadius: 20,
+    padding: 14,
     marginBottom: 18,
+  },
+  topStatusProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  onboardingSection: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  onboardingMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  onboardingTagWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  onboardingTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.9)',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  onboardingPercentLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  onboardingBarTrack: {
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  onboardingBarFill: {
+    height: '100%',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  onboardingBarInnerPercent: {
+    color: '#ffffff',
+    fontSize: 9.5,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  onboardingActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  onboardingMissingHint: {
+    fontSize: 11,
+    color: '#fca5a5',
+    fontWeight: '600',
+    flex: 1,
+  },
+  onboardingArrowIcon: {
+    fontSize: 12,
+    color: '#fca5a5',
+    fontWeight: '800',
+    marginLeft: 4,
   },
   whiteCircleBadge: {
     width: 50,
