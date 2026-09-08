@@ -179,7 +179,9 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
     );
 
     const presentDays = userMonthAttendance.filter((a) => a.status === 'present').length;
-    const daysWorked = userMonthAttendance.length > 0 ? presentDays : wd;
+    const halfDays = userMonthAttendance.filter((a) => a.status === 'half-day').length;
+    const leaveDays = userMonthAttendance.filter((a) => a.status === 'leave').length;
+    const daysWorked = presentDays + halfDays * 0.5 + leaveDays;
     const prorateFactor = wd > 0 ? daysWorked / wd : 1;
 
     const fixedGross = currentUser?.fixedSalary || currentUser?.basic || 45000;
@@ -284,18 +286,10 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
   }, [currentUser]);
 
   const handleDownloadPDF = () => {
-    const downloadUrl = `${BACKEND_URL}/api/payroll/download-payslip?tenantId=default&employeeId=${currentUser?.id || currentUser?.empCode || 'SW001'}&month=${selectedMonthObj.key}`;
+    const downloadUrl = `${BACKEND_URL}/api/payroll/download-payslip?tenantId=${currentUser?.tenantId || 'default'}&employeeId=${currentUser?.id || currentUser?.empCode || ''}&month=${selectedMonthObj.key}`;
     Linking.openURL(downloadUrl).catch(() => {
-      Alert.alert('Download Link Created', `Downloading payslip for ${selectedMonthObj.label}...`);
+      Alert.alert('Download Error', 'Could not open the download link. Please check your network connection.');
     });
-    Alert.alert(
-      'Official Payslip Downloaded',
-      `Payslip_${currentUser?.empCode || 'EMP'}_${selectedMonthObj.key}.pdf has been saved to your device's Downloads storage folder.`,
-      [
-        { text: 'View Slip Preview', onPress: () => setPayslipModalOpen(true) },
-        { text: 'OK' },
-      ]
-    );
   };
 
   return (
@@ -565,25 +559,47 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
               (p.employeeId === currentUser?.id || p.employeeId === currentUser?.empCode) &&
               (p.month === mObj.key || p.month === mObj.label)
           );
-          const histNet = matchRun?.computed?.net || Math.round(payrollComputation.net * 0.98);
+          const hasProcessed = !!matchRun?.computed?.net;
+          const histNet = matchRun?.computed?.net || 0;
 
           return (
             <View key={mObj.key} style={[styles.historyCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
               <View>
                 <Text style={[styles.historyMonth, { color: theme.textPrimary }]}>{mObj.label}</Text>
-                <Text style={[styles.historyNet, { color: theme.textMuted }]}>Net Paid: {formatInr(histNet)}</Text>
+                <Text style={[styles.historyNet, { color: theme.textMuted }]}>
+                  {hasProcessed ? `Net Paid: ${formatInr(histNet)}` : 'Not Processed'}
+                </Text>
               </View>
 
-              <TouchableOpacity
-                style={[styles.historyPdfBtn, { backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9', borderColor: theme.cardBorder }]}
-                onPress={() => {
-                  setSelectedMonthObj(mObj);
-                  setPayslipModalOpen(true);
-                }}
-              >
-                <Icon name="receipt-cutoff" size={13} color={theme.textPrimary} />
-                <Text style={[styles.historyPdfIcon, { color: theme.textPrimary }]}>View Slip</Text>
-              </TouchableOpacity>
+              {hasProcessed ? (
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <TouchableOpacity
+                    style={[styles.historyPdfBtn, { backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9', borderColor: theme.cardBorder }]}
+                    onPress={() => {
+                      setSelectedMonthObj(mObj);
+                      setPayslipModalOpen(true);
+                    }}
+                  >
+                    <Icon name="receipt-cutoff" size={13} color={theme.textPrimary} />
+                    <Text style={[styles.historyPdfIcon, { color: theme.textPrimary }]}>View</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.historyPdfBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                    onPress={() => {
+                      const url = `${BACKEND_URL}/api/payroll/download-payslip?tenantId=${currentUser?.tenantId || 'default'}&employeeId=${currentUser?.id || currentUser?.empCode || ''}&month=${mObj.key}`;
+                      Linking.openURL(url).catch(() => Alert.alert('Error', 'Could not open download link.'));
+                    }}
+                  >
+                    <Icon name="download" size={13} color="#ffffff" />
+                    <Text style={[styles.historyPdfIcon, { color: '#ffffff' }]}>PDF</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={[styles.historyPdfBtn, { backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.04)' : '#f8fafc', borderColor: theme.cardBorder, opacity: 0.5 }]}>
+                  <Icon name="dash" size={13} color={theme.textMuted} />
+                  <Text style={[styles.historyPdfIcon, { color: theme.textMuted }]}>N/A</Text>
+                </View>
+              )}
             </View>
           );
         })}
@@ -652,55 +668,55 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                 <View style={styles.pdfMetaRow}>
                   <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>Employee Name</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.name || 'Employee'}</Text>
+                    <Text style={styles.pdfMetaVal}>{currentUser?.name || '—'}</Text>
                   </View>
                   <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>Employee Code</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.empCode || currentUser?.code || 'SW001'}</Text>
+                    <Text style={styles.pdfMetaVal}>{currentUser?.empCode || currentUser?.code || '—'}</Text>
                   </View>
                 </View>
 
                 <View style={styles.pdfMetaRow}>
                   <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>Designation</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.designation || 'Software Engineer'}</Text>
+                    <Text style={styles.pdfMetaVal}>{currentUser?.designation || '—'}</Text>
                   </View>
                   <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>Department</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.department || 'Engineering'}</Text>
+                    <Text style={styles.pdfMetaVal}>{currentUser?.department || '—'}</Text>
                   </View>
                 </View>
 
                 <View style={styles.pdfMetaRow}>
                   <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>Date of Joining</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.joiningDate || currentUser?.doj || 'Jan 15, 2024'}</Text>
+                    <Text style={styles.pdfMetaVal}>{currentUser?.joiningDate || currentUser?.doj || '—'}</Text>
                   </View>
                   <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>PAN Number</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.panNumber || currentUser?.pan || 'ABCDE1234F'}</Text>
+                    <Text style={styles.pdfMetaVal}>{currentUser?.panNumber || currentUser?.pan || '—'}</Text>
                   </View>
                 </View>
 
                 <View style={styles.pdfMetaRow}>
                   <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>PAN Number</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.panNumber || currentUser?.pan || 'ABCDE1234F'}</Text>
-                  </View>
-                  <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>PF UAN No</Text>
                     <Text style={styles.pdfMetaVal}>{(currentUser as any)?.uan || '—'}</Text>
+                  </View>
+                  <View style={styles.pdfMetaCol}>
+                    <Text style={styles.pdfMetaLabel}>ESI No</Text>
+                    <Text style={styles.pdfMetaVal}>{(currentUser as any)?.esiNumber || '—'}</Text>
                   </View>
                 </View>
 
                 <View style={styles.pdfMetaRow}>
                   <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>Bank Account</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.bankAccount || (currentUser?.bankAcc ? `Bank A/C: ${currentUser.bankAcc}` : 'HDFC Bank (A/C: 50100123456789)')}</Text>
+                    <Text style={styles.pdfMetaVal}>{currentUser?.bankAccount || (currentUser?.bankAcc ? `A/C: ${currentUser.bankAcc}` : '—')}</Text>
                   </View>
                   <View style={styles.pdfMetaCol}>
                     <Text style={styles.pdfMetaLabel}>Bank IFSC</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.bankIfsc || 'HDFC0001234'}</Text>
+                    <Text style={styles.pdfMetaVal}>{currentUser?.bankIfsc || '—'}</Text>
                   </View>
                 </View>
 
@@ -833,12 +849,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
 
               <TouchableOpacity
                 style={styles.pdfDownloadBtn}
-                onPress={() => {
-                  Alert.alert(
-                    'Payslip Downloaded',
-                    `Payslip_${currentUser?.empCode || 'EMP'}_${selectedMonthObj.key}.pdf has been saved to your downloads folder.`
-                  );
-                }}
+                onPress={handleDownloadPDF}
               >
                 <Icon name="download" size={16} color="#ffffff" />
                 <Text style={styles.pdfDownloadBtnText}>Download PDF Payslip</Text>

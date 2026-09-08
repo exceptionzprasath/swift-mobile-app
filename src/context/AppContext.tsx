@@ -150,7 +150,6 @@ export interface Employee {
     status: "pending" | "approved" | "rejected";
     comment?: string;
   };
-  geofencingEnabled?: boolean;
   biometricEnabled?: boolean;
   biometricMappings?: Array<{
     id?: string;
@@ -368,6 +367,9 @@ export interface GrievanceTicket {
   assignedToName?: string;
   subject: string;
   description: string;
+  fromDate?: string;
+  toDate?: string;
+  incidentDate?: string;
   attachments?: string[];
   status: 'Open' | 'In Progress' | 'Resolved' | 'Rejected';
   resolutionNote?: string;
@@ -498,6 +500,9 @@ export interface AppContextType {
     priority: 'Low' | 'Medium' | 'High' | 'Critical';
     subject: string;
     description: string;
+    fromDate?: string;
+    toDate?: string;
+    incidentDate?: string;
     assignedRole?: string;
     attachments?: string[];
   }) => Promise<boolean>;
@@ -1242,6 +1247,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     priority: 'Low' | 'Medium' | 'High' | 'Critical';
     subject: string;
     description: string;
+    fromDate?: string;
+    toDate?: string;
+    incidentDate?: string;
     assignedRole?: string;
     attachments?: string[];
   }): Promise<boolean> => {
@@ -1260,6 +1268,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         assignedRole: ticket.assignedRole || 'HR Manager',
         subject: ticket.subject,
         description: ticket.description,
+        fromDate: ticket.fromDate,
+        toDate: ticket.toDate,
+        incidentDate: ticket.incidentDate || ticket.fromDate,
         attachments: ticket.attachments || [],
         status: 'Open',
         thread: [

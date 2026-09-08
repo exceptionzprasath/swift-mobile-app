@@ -216,9 +216,9 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
   const [compOffSubject, setCompOffSubject] = useState('');
   const [compOffDescription, setCompOffDescription] = useState('');
 
-  // Comp-Off Calendar Picker Modal State
+  // Comp-Off & Grievance Calendar Picker Modal State
   const [calendarVisible, setCalendarVisible] = useState(false);
-  const [calendarTarget, setCalendarTarget] = useState<'worked_from' | 'worked_to' | 'avail_from' | 'avail_to'>('worked_from');
+  const [calendarTarget, setCalendarTarget] = useState<'worked_from' | 'worked_to' | 'avail_from' | 'avail_to' | 'grv_from' | 'grv_to'>('worked_from');
   const [calendarViewDate, setCalendarViewDate] = useState<Date>(new Date());
 
   const MONTH_NAMES = [
@@ -226,6 +226,19 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
   const WEEK_DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+  // Grievance Form State (Dynamic)
+  const [grievanceCat, setGrievanceCat] = useState<string>(
+    dynamicGrievanceOptions[0]?.name || DEFAULT_GRIEVANCE_CATEGORIES[0]
+  );
+  const [grievancePriority, setGrievancePriority] = useState<'Low' | 'Medium' | 'High' | 'Critical'>('Medium');
+  const [grievanceFromDate, setGrievanceFromDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [grievanceToDate, setGrievanceToDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [grievanceSubject, setGrievanceSubject] = useState('');
+  const [grievanceDesc, setGrievanceDesc] = useState('');
+  const [selectedTicket, setSelectedTicket] = useState<GrievanceTicket | null>(null);
+  const [ticketReplyText, setTicketReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
 
   const monthDays = useMemo(() => {
     const year = calendarViewDate.getFullYear();
@@ -240,15 +253,23 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
 
     const todayStr = new Date().toISOString().split('T')[0];
     const isAvail = calendarTarget.startsWith('avail');
-    const fromTime = new Date(isAvail ? compOffAvailFromDate : compOffFromDate).getTime();
-    const toTime = new Date(isAvail ? compOffAvailToDate : compOffToDate).getTime();
+    const isGrv = calendarTarget.startsWith('grv');
+
+    const fromTime = new Date(
+      isGrv ? grievanceFromDate : isAvail ? compOffAvailFromDate : compOffFromDate
+    ).getTime();
+    const toTime = new Date(
+      isGrv ? grievanceToDate : isAvail ? compOffAvailToDate : compOffToDate
+    ).getTime();
 
     for (let d = 1; d <= totalDays; d++) {
       const mStr = String(month + 1).padStart(2, '0');
       const dStr = String(d).padStart(2, '0');
       const cellDateStr = `${year}-${mStr}-${dStr}`;
       const isToday = cellDateStr === todayStr;
-      const isSelected = isAvail
+      const isSelected = isGrv
+        ? cellDateStr === grievanceFromDate || cellDateStr === grievanceToDate
+        : isAvail
         ? cellDateStr === compOffAvailFromDate || cellDateStr === compOffAvailToDate
         : cellDateStr === compOffFromDate || cellDateStr === compOffToDate;
       const cellTime = new Date(cellDateStr).getTime();
@@ -258,7 +279,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
     }
 
     return days;
-  }, [calendarViewDate, compOffFromDate, compOffToDate, compOffAvailFromDate, compOffAvailToDate, calendarTarget]);
+  }, [calendarViewDate, compOffFromDate, compOffToDate, compOffAvailFromDate, compOffAvailToDate, grievanceFromDate, grievanceToDate, calendarTarget]);
 
   const handleSelectCalendarDay = (day: number) => {
     const year = calendarViewDate.getFullYear();
@@ -287,11 +308,21 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
         setCompOffAvailFromDate(selectedDateStr);
       }
       setCompOffAvailToDate(selectedDateStr);
+    } else if (calendarTarget === 'grv_from') {
+      setGrievanceFromDate(selectedDateStr);
+      if (selectedDateStr > grievanceToDate) {
+        setGrievanceToDate(selectedDateStr);
+      }
+    } else if (calendarTarget === 'grv_to') {
+      if (selectedDateStr < grievanceFromDate) {
+        setGrievanceFromDate(selectedDateStr);
+      }
+      setGrievanceToDate(selectedDateStr);
     }
     setCalendarVisible(false);
   };
 
-  const openCalendar = (target: 'worked_from' | 'worked_to' | 'avail_from' | 'avail_to') => {
+  const openCalendar = (target: 'worked_from' | 'worked_to' | 'avail_from' | 'avail_to' | 'grv_from' | 'grv_to') => {
     setCalendarTarget(target);
     const initialDate =
       target === 'worked_from'
@@ -300,7 +331,11 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
         ? new Date(compOffToDate)
         : target === 'avail_from'
         ? new Date(compOffAvailFromDate)
-        : new Date(compOffAvailToDate);
+        : target === 'avail_to'
+        ? new Date(compOffAvailToDate)
+        : target === 'grv_from'
+        ? new Date(grievanceFromDate)
+        : new Date(grievanceToDate);
     setCalendarViewDate(isNaN(initialDate.getTime()) ? new Date() : initialDate);
     setCalendarVisible(true);
   };
@@ -330,16 +365,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
     );
   }, [dynamicCompOffOptions, selectedCompOffType]);
 
-  // Grievance Form State (Dynamic)
-  const [grievanceCat, setGrievanceCat] = useState<string>(
-    dynamicGrievanceOptions[0]?.name || DEFAULT_GRIEVANCE_CATEGORIES[0]
-  );
-  const [grievancePriority, setGrievancePriority] = useState<'Low' | 'Medium' | 'High' | 'Critical'>('Medium');
-  const [grievanceSubject, setGrievanceSubject] = useState('');
-  const [grievanceDesc, setGrievanceDesc] = useState('');
-  const [selectedTicket, setSelectedTicket] = useState<GrievanceTicket | null>(null);
-  const [ticketReplyText, setTicketReplyText] = useState('');
-  const [sendingReply, setSendingReply] = useState(false);
+
 
   // Synchronize grievanceCat if current selection is not available in dynamic list
   useEffect(() => {
@@ -503,54 +529,29 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
     setBusy(true);
     const activeWorkflowId = selectedGrievanceOption?.workflowId || selectedGrievanceOption?.id;
 
-    // 1. Submit through Unified Request workflow engine (routes to approvers configured in Admin Approval Settings)
-    const unifiedRes = await applyUnifiedRequest({
-      category: 'grievance',
-      workflowId: activeWorkflowId,
-      type: grievanceCat,
-      title: `${grievanceCat} (${grievancePriority} Priority)`,
-      details: grievanceSubject.trim(),
-      reason: grievanceDesc.trim(),
-      metadata: {
-        priority: grievancePriority,
-        categoryName: grievanceCat,
-        subject: grievanceSubject.trim(),
-      },
-    });
-
-    // 2. Also register in grievances table for dedicated conversation & thread chat
+    // Register grievance ticket in grievances table
     const ok = await applyGrievance({
       category: grievanceCat,
       priority: grievancePriority,
       subject: grievanceSubject.trim(),
       description: grievanceDesc.trim(),
+      fromDate: grievanceFromDate,
+      toDate: grievanceToDate,
+      incidentDate: grievanceFromDate,
       assignedRole: 'HR Grievance Committee',
     });
     setBusy(false);
 
-    if (ok || unifiedRes.success) {
-      const newReq: UnifiedRequestItem = unifiedRes.item || {
-        id: `grv-${Date.now()}`,
-        category: 'grievance',
-        type: 'Confidential Grievance',
-        title: `${grievanceCat} (${grievancePriority} Priority)`,
-        details: grievanceSubject.trim(),
-        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        status: 'Under Review',
-        priority: grievancePriority,
-        notes: 'Encrypted and assigned to the HR Grievance Committee.',
-      };
-      setCustomRequests((prev) => [newReq, ...prev]);
-
+    if (ok) {
       Alert.alert(
         'Grievance Registered 🛡️',
-        'Your grievance ticket has been securely submitted to HR & Management. You can track progress under the Grievance tab.'
+        'Your grievance ticket has been securely submitted to HR & Management. You can track progress and reply under the Grievance tab.'
       );
       setGrievanceSubject('');
       setGrievanceDesc('');
-      setActiveCategory('history');
+      setActiveCategory('grievance');
     } else {
-      Alert.alert('Error', unifiedRes.error || 'Could not record grievance ticket. Please try again.');
+      Alert.alert('Error', 'Could not record grievance ticket. Please try again.');
     }
   };
 
@@ -1272,6 +1273,40 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
               ))}
             </View>
 
+            {/* Grievance Incident Date Period */}
+            <Text style={[styles.inputLabel, { color: theme.textPrimary, marginTop: 12 }]}>
+              Incident / Issue Period (From Date &amp; To Date):
+            </Text>
+            <View style={styles.datePickerRow}>
+              <TouchableOpacity
+                style={[styles.dateInputBox, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}
+                onPress={() => openCalendar('grv_from')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.dateLabelSmall, { color: theme.textMuted }]}>FROM DATE</Text>
+                <View style={styles.dateValRow}>
+                  <Icon name="calendar" size={14} color="#dc2626" />
+                  <Text style={[styles.dateValText, { color: theme.textPrimary }]}>{grievanceFromDate}</Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={styles.dateArrowBox}>
+                <Text style={{ color: theme.textMuted, fontSize: 13 }}>to</Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.dateInputBox, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}
+                onPress={() => openCalendar('grv_to')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.dateLabelSmall, { color: theme.textMuted }]}>TO DATE</Text>
+                <View style={styles.dateValRow}>
+                  <Icon name="calendar" size={14} color="#dc2626" />
+                  <Text style={[styles.dateValText, { color: theme.textPrimary }]}>{grievanceToDate}</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
             <Text style={[styles.inputLabel, { color: theme.textPrimary, marginTop: 12 }]}>Subject / Brief Summary:</Text>
             <TextInput
               style={[styles.inputField, { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder }]}
@@ -1325,7 +1360,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
                     <View style={{ flex: 1, marginRight: 8 }}>
                       <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>{ticket.subject}</Text>
                       <Text style={[styles.itemDate, { color: theme.textMuted }]}>
-                        Category: {ticket.category} • {new Date(ticket.createdAt).toLocaleDateString()}
+                        Category: {ticket.category} {ticket.fromDate ? `• 📅 Incident: ${ticket.fromDate === ticket.toDate ? ticket.fromDate : `${ticket.fromDate} to ${ticket.toDate}`}` : `• ${new Date(ticket.createdAt).toLocaleDateString()}`}
                       </Text>
                     </View>
                     <View
