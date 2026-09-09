@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { ThemeColors } from '../theme/colors';
 import { Icon, IconName } from '../components/Icon';
@@ -38,7 +39,23 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
     attendance,
     payrolls,
     todayRecord,
+    refreshData,
   } = useAppContext();
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      if (refreshData) {
+        await refreshData();
+      }
+    } catch (err) {
+      console.warn('Error refreshing notifications:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshData]);
 
   const [filter, setFilter] = useState<'all' | 'approvals' | 'general'>('all');
   
@@ -62,28 +79,90 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
     ...(roles || []).map((r) => r.name).filter((name) => name !== 'General Employee' && name !== userRole?.name),
   ];
 
-  // 1. Pending document approvals for authorized manager/HR
-  const pendingDocApprovals = (docRequests || []).filter(
-    (d) => d.status === 'pending' && canRoleApproveDocInApp(userRole, d.letterKey)
-  );
+  // 1. Pending document approvals for authorized manager/HR (Newest first)
+  const pendingDocApprovals = (docRequests || [])
+    .filter((d) => d.status === 'pending' && canRoleApproveDocInApp(userRole, d.letterKey))
+    .sort((a, b) => {
+      const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+      const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      return timeB - timeA;
+    });
 
-  // 2. Pending leave & permission approvals for authorized roles
-  const pendingLeaveApprovals = (leaves || []).filter(
-    (l) => l.status === 'Pending' && canApproveLeaves && l.employeeId !== currentUser?.id
-  );
+  // 2. Pending leave & permission approvals for authorized roles (Newest first)
+  const pendingLeaveApprovals = (leaves || [])
+    .filter((l) => l.status === 'Pending' && canApproveLeaves && l.employeeId !== currentUser?.id)
+    .sort((a, b) => {
+      const timeB = b.appliedOn ? new Date(b.appliedOn).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+      const timeA = a.appliedOn ? new Date(a.appliedOn).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      return timeB - timeA;
+    });
 
   const totalPendingApprovals = pendingDocApprovals.length + pendingLeaveApprovals.length;
   const hasApprovalAuthority = canApproveDocuments || canApproveLeaves;
 
-  // 3. Personal documents needing employee signature
-  const pendingSignatures = (docRequests || []).filter(
-    (d) =>
-      (d.employeeId === currentUser?.id || d.employeeId === currentUser?.empCode) &&
-      d.status === 'approved' &&
-      !d.employeeAccepted
-  );
+  // 3. Personal documents needing employee signature (Newest first)
+  const pendingSignatures = (docRequests || [])
+    .filter(
+      (d) =>
+        (d.employeeId === currentUser?.id || d.employeeId === currentUser?.empCode) &&
+        d.status === 'approved' &&
+        !d.employeeAccepted
+    )
+    .sort((a, b) => {
+      const timeB = b.approvedAt ? new Date(b.approvedAt).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+      const timeA = a.approvedAt ? new Date(a.approvedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      return timeB - timeA;
+    });
 
-  // 4. Dynamic, 100% Real-Time System Notices (NO Hardcoded Mock Data)
+  // Helper to format friendly relative or clock time for notices
+  const formatNoticeTime = (rawTime?: string | number, fallbackDate?: string): string => {
+    const dateVal = rawTime || fallbackDate;
+    if (!dateVal) return 'Today';
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return String(fallbackDate || 'Today');
+
+    const now = Date.now();
+    const diffMs = now - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHours < 24 && d.toDateString() === new Date().toDateString()) {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    }
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  // Helper to extract timestamp for ordering
+  const getNoticeTimestamp = (n: any, fallbackIdx: number, totalLen: number): number => {
+    if (n.createdAt) {
+      const t = new Date(n.createdAt).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (n.timestamp) {
+      const t = typeof n.timestamp === 'number' ? n.timestamp : new Date(n.timestamp).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (typeof n.id === 'string' && n.id.startsWith('notic-')) {
+      const parts = n.id.split('-');
+      const parsed = parseInt(parts[1], 10);
+      if (!isNaN(parsed) && parsed > 1000000000000) return parsed;
+    }
+    if (n.date) {
+      const t = new Date(n.date).getTime();
+      if (!isNaN(t)) return t + fallbackIdx * 1000;
+    }
+    // Fallback: higher index in database array represents more recently added item
+    return Date.now() - (totalLen - 1 - fallbackIdx) * 60000;
+  };
+
+  // 4. Dynamic, 100% Real-Time System Notices (Newest First)
   const realTimeNotices: Array<{
     id: string;
     type: string;
@@ -93,10 +172,12 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
     unread: boolean;
     icon: IconName;
     iconColor: string;
+    timestamp: number;
   }> = [];
 
   // 4a. Real Database Notices from Admin Portal / Backend
   if (Array.isArray(apiNotices) && apiNotices.length > 0) {
+    const totalCount = apiNotices.length;
     apiNotices.forEach((n: any, idx: number) => {
       // Filter if target role or employee is specified
       const isTargeted =
@@ -107,15 +188,18 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
         (n.targetEmployeeId && (n.targetEmployeeId === currentUser?.id || n.targetEmployeeId === currentUser?.empCode));
 
       if (isTargeted) {
+        const timestamp = getNoticeTimestamp(n, idx, totalCount);
+        const isUnread = Array.isArray(n.readBy) && currentUser?.id ? !n.readBy.includes(currentUser.id) : false;
         realTimeNotices.push({
           id: n.id || `notic-${idx}`,
           type: n.category || 'announcement',
           title: n.title || 'Company Notice',
           desc: n.description || n.body || 'Official company announcement',
-          time: n.date || 'Today',
-          unread: false,
+          time: formatNoticeTime(n.createdAt || n.timestamp, n.date),
+          unread: isUnread,
           icon: n.category === 'approval' ? 'shield' : n.category === 'leave' ? 'calendar' : 'document',
           iconColor: n.category === 'approval' ? '#f59e0b' : theme.primary,
+          timestamp,
         });
       }
     });
@@ -127,16 +211,19 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
   );
 
   userLeaves.slice(0, 3).forEach((l) => {
+    const leaveTime = l.actedAt || l.appliedOn || l.createdAt;
+    const leaveTimestamp = leaveTime ? new Date(leaveTime).getTime() : Date.now() - 3600000;
     if (l.status === 'Approved') {
       realTimeNotices.push({
         id: `leave-app-${l.id}`,
         type: 'leave',
         title: `${l.type} Approved`,
         desc: `Your application for ${l.startDate || ''} (${l.days}) was approved by ${l.actedBy || 'Manager'}${l.approverComment ? ` · "${l.approverComment}"` : ''}.`,
-        time: l.actedAt ? new Date(l.actedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
+        time: formatNoticeTime(l.actedAt, 'Recent'),
         unread: false,
         icon: 'calendar',
         iconColor: '#10b981',
+        timestamp: leaveTimestamp,
       });
     } else if (l.status === 'Rejected') {
       realTimeNotices.push({
@@ -144,10 +231,11 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
         type: 'leave',
         title: `${l.type} Request Rejected`,
         desc: `Your application for ${l.startDate || ''} was declined by ${l.actedBy || 'Manager'}${l.approverComment ? ` · Reason: ${l.approverComment}` : ''}.`,
-        time: l.actedAt ? new Date(l.actedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
+        time: formatNoticeTime(l.actedAt, 'Recent'),
         unread: true,
         icon: 'calendar',
         iconColor: '#ef4444',
+        timestamp: leaveTimestamp,
       });
     } else if (l.status === 'Pending') {
       realTimeNotices.push({
@@ -159,21 +247,26 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
         unread: false,
         icon: 'clock',
         iconColor: '#f59e0b',
+        timestamp: leaveTimestamp,
       });
     }
   });
 
   // 4c. Real-time Attendance Check-in Notification
   if (todayRecord && todayRecord.clockIn) {
+    const attTimestamp = todayRecord.clockIn
+      ? new Date(`${todayRecord.date || new Date().toISOString().split('T')[0]}T${todayRecord.clockIn}`).getTime()
+      : Date.now() - 1800000;
     realTimeNotices.push({
       id: `att-today-${todayRecord.date}`,
       type: 'attendance',
       title: 'Biometric Attendance Verified',
       desc: `Check-in recorded at ${todayRecord.clockIn} today via AWS Rekognition facial biometric verification (${todayRecord.similarity ? todayRecord.similarity.toFixed(1) + '%' : 'Verified'}).`,
-      time: 'Today',
+      time: todayRecord.clockIn,
       unread: false,
       icon: 'clock',
       iconColor: '#10b981',
+      timestamp: attTimestamp,
     });
   }
 
@@ -190,6 +283,7 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
       unread: false,
       icon: 'holiday',
       iconColor: '#f59e0b',
+      timestamp: upcomingHol.date ? new Date(upcomingHol.date).getTime() : Date.now() - 7200000,
     });
   }
 
@@ -207,8 +301,12 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
       unread: false,
       icon: 'payroll',
       iconColor: theme.primary,
+      timestamp: userPayroll.generatedAt ? new Date(userPayroll.generatedAt).getTime() : Date.now() - 86400000,
     });
   }
+
+  // Always present newest notifications at the TOP (descending order)
+  realTimeNotices.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
   const systemNotices = realTimeNotices;
 
@@ -297,7 +395,18 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.bg }]}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[theme.primary]}
+          tintColor={theme.primary}
+        />
+      }
+    >
       {/* Header */}
       <View style={styles.headerRow}>
         <View>

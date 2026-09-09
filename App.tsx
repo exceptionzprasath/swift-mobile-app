@@ -4,6 +4,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemeColors, getThemeForPalette, getPaletteById } from './src/theme/colors';
+import { getFCMToken, setupNotificationListeners } from './src/services/notificationService';
 
 import { AppProvider, useAppContext, canRoleApproveDocInApp } from './src/context/AppContext';
 import { SplashView } from './src/components/SplashView';
@@ -64,6 +65,26 @@ function MainAppContent() {
   }, []);
 
   const { isLoggedIn, currentUser, companyConfig, login, logout, docRequests, userRole } = useAppContext();
+
+  // Initialize Firebase push notification listener
+  useEffect(() => {
+    getFCMToken(currentUser?.id || currentUser?.empCode);
+
+    const cleanup = setupNotificationListeners(
+      (remoteMessage) => {
+        console.log('[FCM] Foreground push message received:', remoteMessage);
+      },
+      (remoteMessage) => {
+        console.log('[FCM] Push message tapped by user:', remoteMessage);
+        setActiveTab('notifications');
+      }
+    );
+
+    return () => {
+      cleanup();
+    };
+  }, [currentUser?.id, currentUser?.empCode]);
+
   const theme: ThemeColors = getThemeForPalette(selectedPaletteId, isDarkMode);
 
   const toggleTheme = () => {

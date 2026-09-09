@@ -1,7 +1,7 @@
 // Single clean ngrok backend URL link
-// export const BACKEND_URL = 'https://d950-2401-4900-4dd7-edb-7d35-a4e9-6e5d-8a8b.ngrok-free.app';
+export const BACKEND_URL = 'https://malt-gaming-suction.ngrok-free.dev';
 
-export const BACKEND_URL = 'https://swifthr.shop';
+// export const BACKEND_URL = 'https://swifthr.shop';
 
 
 const FETCH_HEADERS = {
