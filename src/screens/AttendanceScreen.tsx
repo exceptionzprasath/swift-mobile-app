@@ -604,14 +604,43 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
       } else if (leaveEntry) {
         primaryStatus = 'leave';
       } else if (rawIn) {
-        if (existingRec?.status === 'present') {
+        const isPostShift = shiftEndMins >= 0 && inMins >= shiftEndMins;
+        if (existingRec?.status === 'absent' || isPostShift) {
+          primaryStatus = 'absent_unmarked';
+        } else if (existingRec?.status === 'present') {
           primaryStatus = 'present';
         } else if ((existingRec?.status as any) === 'half-day' || existingRec?.status === 'halfday') {
           primaryStatus = 'absent_late';
-        } else if (isLateBeyondGrace && isEarlyCheckout) {
-          primaryStatus = 'absent_both';
         } else if (isLateBeyondGrace) {
-          primaryStatus = 'absent_late';
+          // Check if employee has an approved permission for this date
+          const matchingPermission = (userApprovedLeaves || []).find((l: any) =>
+            (l.type?.toLowerCase().includes('permission') || l.type?.toLowerCase().includes('short')) &&
+            dateStr >= (l.startDate || l.from || '') &&
+            dateStr <= (l.endDate || l.to || '')
+          );
+
+          if (matchingPermission) {
+            const permConfig = (companyConfig as any)?.permissionTypes?.[0] || { maxHours: 2, maxRequestsPerMonth: 2, paid: true };
+            const monthPrefix = dateStr.slice(0, 7);
+            const monthPerms = (userApprovedLeaves || []).filter((l: any) =>
+              (l.type?.toLowerCase().includes('permission') || l.type?.toLowerCase().includes('short')) &&
+              (l.startDate || l.from || '').startsWith(monthPrefix)
+            );
+            const usedPermHours = monthPerms.reduce((sum: number, l: any) => sum + (parseFloat(l.days) || parseFloat(l.hours) || 1), 0);
+            const isPaidWithinQuota = permConfig.paid !== false && usedPermHours <= (permConfig.maxHours || 2) && monthPerms.length <= (permConfig.maxRequestsPerMonth || 2);
+
+            if (isPaidWithinQuota) {
+              primaryStatus = 'present';
+              timingsStr = `${timingsStr} (Permission Applied)`;
+            } else {
+              primaryStatus = 'absent_late';
+              timingsStr = `${timingsStr} (LOP - Perm Quota Exceeded)`;
+            }
+          } else if (isEarlyCheckout) {
+            primaryStatus = 'absent_both';
+          } else {
+            primaryStatus = 'absent_late';
+          }
         } else if (isEarlyCheckout) {
           primaryStatus = 'absent_early';
         } else {
@@ -708,12 +737,15 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
         !lt.name?.toLowerCase().includes('permission') &&
         !lt.name?.toLowerCase().includes('short')
     );
-    if (filtered.length > 0) return filtered;
-    return [
+    const types = filtered.length > 0 ? [...filtered] : [
       { id: 'cl', name: 'Casual Leave', days: 12, paid: true },
       { id: 'sl', name: 'Sick Leave', days: 8, paid: true },
       { id: 'el', name: 'Earned Leave', days: 15, paid: true },
     ];
+    if (!types.some((t) => t.name?.toLowerCase().includes('loss') || t.name?.toLowerCase().includes('lop'))) {
+      types.push({ id: 'lop', name: 'Loss of Pay (LOP)', days: 0, paid: false });
+    }
+    return types;
   }, [companyConfig]);
 
   // Dynamic leave balances from backend settings & approved leave records

@@ -157,7 +157,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
   const { leaves, applyLeave, actOnLeave, canApproveLeaves, refreshData, currentUser, companyConfig } = useAppContext();
 
   const [requestType, setRequestType] = useState<'leave' | 'permission'>('leave');
-  const [leaveCategory, setLeaveCategory] = useState<'Casual' | 'Sick' | 'Earned'>('Casual');
+  const [leaveCategory, setLeaveCategory] = useState<'Casual' | 'Sick' | 'Earned' | 'LOP'>('Casual');
   const [leaveDurationType, setLeaveDurationType] = useState<'single' | 'half' | 'range'>('single');
   const [halfDaySession, setHalfDaySession] = useState<'Morning (1st Half)' | 'Afternoon (2nd Half)'>('Morning (1st Half)');
 
@@ -243,6 +243,10 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
     .filter((l) => l.type.toLowerCase().includes('earned'))
     .reduce((sum, l) => sum + (parseFloat(l.days) || 1), 0);
 
+  const usedLOP = userApprovedLeaves
+    .filter((l) => l.type.toLowerCase().includes('lop') || l.type.toLowerCase().includes('loss'))
+    .reduce((sum, l) => sum + (parseFloat(l.days) || 1), 0);
+
   const totalCasual = companyConfig?.leaveQuota?.casual || (companyConfig as any)?.leaveTypes?.find((l: any) => l.name?.toLowerCase().includes('casual'))?.days || 12;
   const totalSick = companyConfig?.leaveQuota?.sick || (companyConfig as any)?.leaveTypes?.find((l: any) => l.name?.toLowerCase().includes('sick'))?.days || 8;
   const totalEarned = companyConfig?.leaveQuota?.earned || (companyConfig as any)?.leaveTypes?.find((l: any) => l.name?.toLowerCase().includes('earned'))?.days || 15;
@@ -280,6 +284,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
     if (leaveCategory === 'Casual') return casualBal;
     if (leaveCategory === 'Sick') return sickBal;
     if (leaveCategory === 'Earned') return earnedBal;
+    if (leaveCategory === 'LOP') return 999;
     return 0;
   })();
   const currentLeaveTotal = (() => {
@@ -287,9 +292,10 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
     if (leaveCategory === 'Casual') return totalCasual;
     if (leaveCategory === 'Sick') return totalSick;
     if (leaveCategory === 'Earned') return totalEarned;
+    if (leaveCategory === 'LOP') return usedLOP;
     return 0;
   })();
-  const isBalanceExhausted = currentLeaveBalance <= 0;
+  const isBalanceExhausted = leaveCategory === 'LOP' ? false : currentLeaveBalance <= 0;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -326,7 +332,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
   const requestedUnits = requestType === 'permission'
     ? parseFloat(permissionSlotDuration)
     : calculatedDaysCount || 1;
-  const wouldExceedBalance = requestedUnits > currentLeaveBalance;
+  const wouldExceedBalance = leaveCategory === 'LOP' ? false : requestedUnits > currentLeaveBalance;
   const isSubmitDisabled = !isLeaveEligible || isBalanceExhausted || wouldExceedBalance;
 
   // Open Calendar Picker Modal
@@ -422,25 +428,27 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
       return;
     }
 
-    // Balance check before submitting
-    if (isBalanceExhausted) {
-      const unitLabel = requestType === 'permission' ? 'hours' : 'days';
-      const typeName = requestType === 'permission' ? 'Permission' : `${leaveCategory} Leave`;
-      Alert.alert(
-        'Insufficient Leave Balance',
-        `You have no remaining ${typeName} balance (${currentLeaveBalance} ${unitLabel} left out of ${currentLeaveTotal} ${unitLabel}).`
-      );
-      return;
-    }
+    // Balance check before submitting (LOP is unpaid and has no quota limits)
+    if (leaveCategory !== 'LOP') {
+      if (isBalanceExhausted) {
+        const unitLabel = requestType === 'permission' ? 'hours' : 'days';
+        const typeName = requestType === 'permission' ? 'Permission' : `${leaveCategory} Leave`;
+        Alert.alert(
+          'Insufficient Leave Balance',
+          `You have no remaining ${typeName} balance (${currentLeaveBalance} ${unitLabel} left out of ${currentLeaveTotal} ${unitLabel}).`
+        );
+        return;
+      }
 
-    if (wouldExceedBalance) {
-      const unitLabel = requestType === 'permission' ? 'hours' : 'days';
-      const typeName = requestType === 'permission' ? 'Permission' : `${leaveCategory} Leave`;
-      Alert.alert(
-        'Insufficient Leave Balance',
-        `You requested ${requestedUnits} ${unitLabel} of ${typeName} but only ${currentLeaveBalance} ${unitLabel} remain.`
-      );
-      return;
+      if (wouldExceedBalance) {
+        const unitLabel = requestType === 'permission' ? 'hours' : 'days';
+        const typeName = requestType === 'permission' ? 'Permission' : `${leaveCategory} Leave`;
+        Alert.alert(
+          'Insufficient Leave Balance',
+          `You requested ${requestedUnits} ${unitLabel} of ${typeName} but only ${currentLeaveBalance} ${unitLabel} remain.`
+        );
+        return;
+      }
     }
 
     if (!reason.trim()) {
@@ -453,7 +461,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
     let daysStr = '';
 
     if (requestType === 'leave') {
-      typeStr = `${leaveCategory} Leave`;
+      typeStr = leaveCategory === 'LOP' ? 'Loss of Pay (LOP) Leave' : `${leaveCategory} Leave`;
       if (leaveDurationType === 'single') {
         datesStr = formatDate(startDate);
         daysStr = '1 Day';
@@ -652,11 +660,18 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
             <View style={{ opacity: isLeaveEligible ? 1 : 0.6 }}>
               <Text style={[styles.gridSectionLabel, { color: theme.textMuted }]}>Choose Category &amp; Mode</Text>
               <View style={styles.grid3x2}>
-                {/* Row 1: 3 Leave Categories */}
+                {/* Row 1: 4 Leave Categories */}
                 <View style={styles.gridRow}>
-                  {(['Casual', 'Sick', 'Earned'] as const).map((cat) => {
+                  {(['Casual', 'Sick', 'Earned', 'LOP'] as const).map((cat) => {
                     const isSelected = leaveCategory === cat;
-                    const catColor = cat === 'Casual' ? theme.primary : cat === 'Sick' ? theme.warning : theme.success;
+                    const catColor =
+                      cat === 'Casual'
+                        ? theme.primary
+                        : cat === 'Sick'
+                        ? theme.warning
+                        : cat === 'Earned'
+                        ? theme.success
+                        : '#f43f5e';
                     return (
                       <TouchableOpacity
                         key={cat}
@@ -677,7 +692,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
                           ]}
                           numberOfLines={1}
                         >
-                          {cat} ({cat === 'Casual' ? 'CL' : cat === 'Sick' ? 'SL' : 'EL'})
+                          {cat === 'LOP' ? 'LOP' : `${cat} (${cat === 'Casual' ? 'CL' : cat === 'Sick' ? 'SL' : 'EL'})`}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -798,9 +813,17 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
 
               {/* Total Units Summary Pill */}
               <View style={[styles.summaryPill, { backgroundColor: theme.isDark ? 'rgba(255, 255, 255, 0.04)' : theme.inputBg, borderColor: theme.cardBorder }]}>
-                <Icon name="info" size={14} color={theme.primary} />
+                <Icon name="info" size={14} color={leaveCategory === 'LOP' ? '#f43f5e' : theme.primary} />
                 <Text style={[styles.summaryPillText, { color: theme.textPrimary }]}>
-                  Requested: <Text style={{ fontWeight: '800', color: theme.primary }}>{calculatedDaysCount} Day(s)</Text>
+                  {leaveCategory === 'LOP' ? (
+                    <>
+                      Category: <Text style={{ fontWeight: '800', color: '#f43f5e' }}>Loss of Pay (LOP · Unpaid)</Text> · Requested: <Text style={{ fontWeight: '800', color: theme.textPrimary }}>{calculatedDaysCount} Day(s)</Text>
+                    </>
+                  ) : (
+                    <>
+                      Requested: <Text style={{ fontWeight: '800', color: theme.primary }}>{calculatedDaysCount} Day(s)</Text>
+                    </>
+                  )}
                   {leaveDurationType === 'range' && ` (${formatShortDate(startDate)} – ${formatShortDate(endDate)})`}
                 </Text>
               </View>
@@ -1582,6 +1605,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
                 { title: 'Casual Leave (CL)', quota: `${totalCasual} Days / Year`, desc: 'For personal needs, family events, or urgent unplanned matters. Requires prior manager approval.' },
                 { title: 'Sick Leave (SL)', quota: `${totalSick} Days / Year`, desc: 'Medical emergencies & recovery. Medical certificate required for 3+ consecutive days.' },
                 { title: 'Earned / Privilege (EL)', quota: `${totalEarned} Days / Year`, desc: 'Accumulated paid annual leaves. Requires minimum 3-5 days advance notice.' },
+                { title: 'Loss of Pay (LOP)', quota: 'Unpaid Leave', desc: 'Unpaid absence taken when paid leave balances are exhausted or when requested explicitly. Subject to standard manager approval workflow.' },
                 { title: 'Short Permission', quota: `${totalPermission} Hours / ${permPeriod === 'year' ? 'Year' : 'Month'}`, desc: 'Allowed in 1h, 1.5h, or 2h slots for late logins or urgent personal work during shift hours.' },
               ].map((pol, pIdx) => (
                 <View key={pIdx} style={{ backgroundColor: theme.inputBg, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.cardBorder, marginBottom: 10 }}>

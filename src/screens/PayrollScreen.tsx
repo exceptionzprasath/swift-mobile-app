@@ -179,8 +179,8 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
     );
 
     const presentDays = userMonthAttendance.filter((a) => a.status === 'present').length;
-    const halfDays = userMonthAttendance.filter((a) => a.status === 'half-day').length;
-    const leaveDays = userMonthAttendance.filter((a) => a.status === 'leave').length;
+    const halfDays = userMonthAttendance.filter((a) => a.status === 'halfday' || (a.status as string) === 'half-day').length;
+    const leaveDays = userMonthAttendance.filter((a) => (a.status as string) === 'leave').length;
     const daysWorked = presentDays + halfDays * 0.5 + leaveDays;
     const prorateFactor = wd > 0 ? daysWorked / wd : 1;
 
