@@ -413,6 +413,7 @@ export interface UnifiedRequestItem {
   details: string;
   reason?: string;
   notes?: string;
+  attachments?: string[];
   status: 'Pending' | 'Approved' | 'Rejected' | 'Under Review' | 'Resolved' | 'Disbursed';
   priority?: 'Low' | 'Medium' | 'High' | 'Critical';
   currentLevel?: number;
@@ -421,6 +422,10 @@ export interface UnifiedRequestItem {
   escalationDays?: number;
   approvalSteps?: UnifiedRequestStepAudit[];
   metadata?: any;
+  requestId?: string;
+  applicantName?: string;
+  applicantEmpCode?: string;
+  steps?: { title: string; subtitle?: string; status: 'completed' | 'in-progress' | 'pending' }[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -488,6 +493,7 @@ export interface AppContextType {
     details?: string;
     reason?: string;
     notes?: string;
+    attachments?: string[];
     metadata?: any;
   }) => Promise<{ success: boolean; item?: UnifiedRequestItem; error?: string }>;
   actOnUnifiedRequest: (
@@ -1932,6 +1938,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     details?: string;
     reason?: string;
     notes?: string;
+    attachments?: string[];
     metadata?: any;
   }): Promise<{ success: boolean; item?: UnifiedRequestItem; error?: string }> => {
     try {
@@ -1975,6 +1982,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         date: params.date || new Date().toISOString().slice(0, 10),
         details: params.details || params.reason || '',
         reason: params.reason || params.details || '',
+        attachments: params.attachments || (Array.isArray(params.metadata?.attachments) ? params.metadata.attachments : []),
         status: 'Pending',
         currentLevel: 1,
         totalLevels: (params.category === 'profile' || (params as any).category === 'profile_update') ? 1 : 2,

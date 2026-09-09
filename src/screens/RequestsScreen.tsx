@@ -12,7 +12,9 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { ThemeColors } from '../theme/colors';
 import { Icon, IconName } from '../components/Icon';
 import { useAppContext, GrievanceTicket, UnifiedRequestItem } from '../context/AppContext';
@@ -72,6 +74,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
     applyGrievance,
     sendGrievanceMessage,
     applyUnifiedRequest,
+    actOnUnifiedRequest,
     docRequests,
     refreshData,
   } = useAppContext();
@@ -239,6 +242,213 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
   const [selectedTicket, setSelectedTicket] = useState<GrievanceTicket | null>(null);
   const [ticketReplyText, setTicketReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
+
+  // Attachment state for each request category
+  const [loanAttachments, setLoanAttachments] = useState<
+    { uri: string; dataUrl: string; name?: string; sizeKb?: string }[]
+  >([]);
+  const [compOffAttachments, setCompOffAttachments] = useState<
+    { uri: string; dataUrl: string; name?: string; sizeKb?: string }[]
+  >([]);
+  const [grievanceAttachments, setGrievanceAttachments] = useState<
+    { uri: string; dataUrl: string; name?: string; sizeKb?: string }[]
+  >([]);
+
+  // Approver inspection & attachment preview lightbox
+  const [inspectRequest, setInspectRequest] = useState<UnifiedRequestItem | null>(null);
+  const [previewModalImage, setPreviewModalImage] = useState<string | null>(null);
+  const [actingOnRequestId, setActingOnRequestId] = useState<string | null>(null);
+
+  const handlePickAttachment = async (
+    target: 'loan' | 'compoff' | 'grievance',
+    source: 'camera' | 'gallery' | 'sample'
+  ) => {
+    if (source === 'sample') {
+      const sampleItem = {
+        uri: '',
+        dataUrl:
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        name: `${target === 'loan' ? 'Salary_Slip_Proof' : target === 'compoff' ? 'Shift_Duty_Proof' : 'Grievance_Evidence'}_${Date.now().toString().slice(-4)}.png`,
+        sizeKb: '48 KB',
+      };
+      if (target === 'loan') setLoanAttachments((prev) => [...prev, sampleItem]);
+      else if (target === 'compoff') setCompOffAttachments((prev) => [...prev, sampleItem]);
+      else setGrievanceAttachments((prev) => [...prev, sampleItem]);
+      return;
+    }
+
+    try {
+      if (source === 'camera') {
+        const res = await launchCamera({
+          mediaType: 'photo',
+          includeBase64: true,
+          quality: 0.8,
+          maxWidth: 1024,
+          maxHeight: 1024,
+        });
+        if (res.didCancel || !res.assets || res.assets.length === 0) return;
+        const asset = res.assets[0];
+        if (asset.base64) {
+          const item = {
+            uri: asset.uri || '',
+            dataUrl: `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`,
+            name: asset.fileName || `Camera_${Date.now().toString().slice(-4)}.jpg`,
+            sizeKb: asset.fileSize ? `${Math.round(asset.fileSize / 1024)} KB` : '110 KB',
+          };
+          if (target === 'loan') setLoanAttachments((prev) => [...prev, item]);
+          else if (target === 'compoff') setCompOffAttachments((prev) => [...prev, item]);
+          else setGrievanceAttachments((prev) => [...prev, item]);
+        }
+      } else {
+        const res = await launchImageLibrary({
+          mediaType: 'photo',
+          includeBase64: true,
+          quality: 0.8,
+          selectionLimit: 3,
+          maxWidth: 1024,
+          maxHeight: 1024,
+        });
+        if (res.didCancel || !res.assets || res.assets.length === 0) return;
+        const items = res.assets
+          .filter((a) => !!a.base64)
+          .map((a, i) => ({
+            uri: a.uri || '',
+            dataUrl: `data:${a.type || 'image/jpeg'};base64,${a.base64}`,
+            name: a.fileName || `Document_${Date.now().toString().slice(-4)}_${i + 1}.jpg`,
+            sizeKb: a.fileSize ? `${Math.round(a.fileSize / 1024)} KB` : '90 KB',
+          }));
+        if (target === 'loan') setLoanAttachments((prev) => [...prev, ...items]);
+        else if (target === 'compoff') setCompOffAttachments((prev) => [...prev, ...items]);
+        else setGrievanceAttachments((prev) => [...prev, ...items]);
+      }
+    } catch (e: any) {
+      Alert.alert('Upload Error', e?.message || 'Could not attach image.');
+    }
+  };
+
+  const handleApproverAction = async (requestId: string, action: 'approve' | 'reject') => {
+    setActingOnRequestId(requestId);
+    try {
+      const ok = await actOnUnifiedRequest(
+        requestId,
+        action === 'approve' ? 'approve' : 'reject',
+        `${action === 'approve' ? 'Approved' : 'Declined'} via Mobile App by ${currentUser?.name || 'Approver'}`
+      );
+      if (ok) {
+        Alert.alert(
+          action === 'approve' ? 'Request Approved ✅' : 'Request Rejected ❌',
+          `The request status has been updated. Notification sent.`
+        );
+        setInspectRequest(null);
+        await refreshData();
+      } else {
+        Alert.alert('Error', 'Could not process approver action.');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Action failed');
+    } finally {
+      setActingOnRequestId(null);
+    }
+  };
+
+  const renderAttachmentUploadSection = (
+    categoryKey: 'loan' | 'compoff' | 'grievance',
+    fileList: { uri: string; dataUrl: string; name?: string; sizeKb?: string }[]
+  ) => {
+    const isLoan = categoryKey === 'loan';
+    const isCompOff = categoryKey === 'compoff';
+    const accentColor = isLoan ? '#059669' : isCompOff ? '#d97706' : '#dc2626';
+    const categoryTitle = isLoan
+      ? 'Supporting Document / Payslip / Note (Optional)'
+      : isCompOff
+      ? 'Duty Approval / Shift Evidence (Optional)'
+      : 'Incident Evidence / Screenshots (Optional)';
+
+    return (
+      <View style={[styles.attachmentBox, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
+        <View style={styles.attachmentBoxHeader}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+            <Icon name="document" size={13} color={accentColor} />
+            <Text style={[styles.attachmentBoxTitle, { color: theme.textPrimary }]}>
+              {categoryTitle}
+            </Text>
+          </View>
+          <View style={[styles.optionalBadge, { backgroundColor: accentColor + '18' }]}>
+            <Text style={[styles.optionalBadgeText, { color: accentColor }]}>Optional</Text>
+          </View>
+        </View>
+
+        <Text style={[styles.attachmentBoxHelp, { color: theme.textMuted }]}>
+          Upload photos or documents for swift approver verification.
+        </Text>
+
+        {/* Action Buttons */}
+        <View style={styles.attachBtnRow}>
+          <TouchableOpacity
+            style={[styles.attachMiniBtn, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
+            onPress={() => handlePickAttachment(categoryKey, 'camera')}
+          >
+            <Icon name="camera" size={12} color={accentColor} />
+            <Text style={[styles.attachMiniBtnText, { color: theme.textPrimary }]}>Camera</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.attachMiniBtn, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
+            onPress={() => handlePickAttachment(categoryKey, 'gallery')}
+          >
+            <Icon name="document" size={12} color={accentColor} />
+            <Text style={[styles.attachMiniBtnText, { color: theme.textPrimary }]}>Gallery</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.attachMiniBtn, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
+            onPress={() => handlePickAttachment(categoryKey, 'sample')}
+          >
+            <Icon name="check" size={12} color="#6366f1" />
+            <Text style={[styles.attachMiniBtnText, { color: theme.textPrimary }]}>+ Sample</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Attached Files Pills */}
+        {fileList.length > 0 && (
+          <View style={styles.attachedPillContainer}>
+            {fileList.map((file, idx) => (
+              <View
+                key={idx}
+                style={[styles.attachedPillItem, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
+              >
+                <TouchableOpacity
+                  onPress={() => setPreviewModalImage(file.dataUrl)}
+                  style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}
+                >
+                  <Image source={{ uri: file.dataUrl }} style={styles.attachedPillThumb} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.attachedPillName, { color: theme.textPrimary }]} numberOfLines={1}>
+                      {file.name || `Attachment #${idx + 1}`}
+                    </Text>
+                    <Text style={[styles.attachedPillSize, { color: theme.textMuted }]}>
+                      {file.sizeKb || 'Attached proof'} • Tap to preview
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    if (categoryKey === 'loan') setLoanAttachments((prev) => prev.filter((_, i) => i !== idx));
+                    else if (categoryKey === 'compoff') setCompOffAttachments((prev) => prev.filter((_, i) => i !== idx));
+                    else setGrievanceAttachments((prev) => prev.filter((_, i) => i !== idx));
+                  }}
+                  style={styles.attachedPillRemove}
+                >
+                  <Icon name="cross" size={10} color="#ef4444" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   const monthDays = useMemo(() => {
     const year = calendarViewDate.getFullYear();
@@ -419,6 +629,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
 
     const tenorMonths = loanTenor.includes('6') ? 6 : loanTenor.includes('3') ? 3 : loanTenor.includes('2') ? 2 : 1;
     const monthlyEmi = Math.round(Number(loanAmount) / tenorMonths);
+    const loanAttachmentUrls = loanAttachments.map((f) => f.dataUrl);
 
     const res = await applyUnifiedRequest({
       category: 'loan',
@@ -432,6 +643,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
       details: `Type: ${activeTypeName} • Tenor: ${loanTenor} • Purpose: ${loanPurpose}${loanRemarks.trim() ? ` • Note: ${loanRemarks.trim()}` : ''}`,
       reason: loanPurpose,
       notes: `Estimated Monthly Deduction: ₹${monthlyEmi.toLocaleString()} / month for ${tenorMonths} month(s).`,
+      attachments: loanAttachmentUrls,
       metadata: {
         loanType: activeTypeName,
         tenor: loanTenor,
@@ -440,15 +652,17 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
         purpose: loanPurpose,
         remarks: loanRemarks.trim(),
         startMonth: new Date().toISOString().slice(0, 7),
+        attachments: loanAttachmentUrls,
       },
     });
     setBusy(false);
 
     if (res.success) {
       setLoanRemarks('');
+      setLoanAttachments([]);
       Alert.alert(
         'Loan Request Submitted 🚀',
-        `Your request for ${activeTypeName} of ₹${Number(loanAmount).toLocaleString()} has been submitted. It will follow the approval workflow configured in the company Admin Panel.`
+        `Your request for ${activeTypeName} of ₹${Number(loanAmount).toLocaleString()} has been submitted with ${loanAttachmentUrls.length} attachment(s). It will follow the approval workflow configured in the company Admin Panel.`
       );
       setActiveCategory('history');
     } else {
@@ -476,6 +690,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
 
     const isSameAvailDay = compOffAvailFromDate === compOffAvailToDate;
     const availDateLabel = isSameAvailDay ? compOffAvailFromDate : `${compOffAvailFromDate} to ${compOffAvailToDate}`;
+    const compOffAttachmentUrls = compOffAttachments.map((f) => f.dataUrl);
 
     const res = await applyUnifiedRequest({
       category: 'comp_off',
@@ -487,6 +702,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
       details: `Subject: ${compOffSubject.trim()} • Worked: ${workedDateLabel} • Comp-Off: ${availDateLabel} • ${compOffHours}`,
       reason: compOffDescription.trim(),
       notes: `Worked: ${workedDateLabel}. Comp-Off Date: ${availDateLabel}. Upon approval, attendance is marked PRESENT for ${workedDateLabel} and leave balance is credited.`,
+      attachments: compOffAttachmentUrls,
       metadata: {
         compOffType: activeTypeName,
         fromDate: compOffFromDate,
@@ -498,6 +714,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
         subject: compOffSubject.trim(),
         description: compOffDescription.trim(),
         shiftHours: compOffHours,
+        attachments: compOffAttachmentUrls,
       },
     });
     setBusy(false);
@@ -505,9 +722,10 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
     if (res.success) {
       setCompOffSubject('');
       setCompOffDescription('');
+      setCompOffAttachments([]);
       Alert.alert(
         'Comp-Off Request Submitted ☕',
-        `Your ${activeTypeName} request (Worked: ${workedDateLabel} • Comp-Off: ${availDateLabel}) has been submitted. Upon approval, attendance will automatically be marked PRESENT for ${workedDateLabel} and credit added to your leave balance.`
+        `Your ${activeTypeName} request (Worked: ${workedDateLabel} • Comp-Off: ${availDateLabel}) has been submitted with ${compOffAttachmentUrls.length} attachment(s). Upon approval, attendance will automatically be marked PRESENT for ${workedDateLabel} and credit added to your leave balance.`
       );
       setActiveCategory('history');
     } else {
@@ -528,6 +746,7 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
 
     setBusy(true);
     const activeWorkflowId = selectedGrievanceOption?.workflowId || selectedGrievanceOption?.id;
+    const grievanceAttachmentUrls = grievanceAttachments.map((f) => f.dataUrl);
 
     // Register grievance ticket in grievances table
     const ok = await applyGrievance({
@@ -539,16 +758,18 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
       toDate: grievanceToDate,
       incidentDate: grievanceFromDate,
       assignedRole: 'HR Grievance Committee',
+      attachments: grievanceAttachmentUrls,
     });
     setBusy(false);
 
     if (ok) {
       Alert.alert(
         'Grievance Registered 🛡️',
-        'Your grievance ticket has been securely submitted to HR & Management. You can track progress and reply under the Grievance tab.'
+        `Your grievance ticket has been securely submitted with ${grievanceAttachmentUrls.length} supporting attachment(s) to HR & Management. You can track progress and reply under the Grievance tab.`
       );
       setGrievanceSubject('');
       setGrievanceDesc('');
+      setGrievanceAttachments([]);
       setActiveCategory('grievance');
     } else {
       Alert.alert('Error', 'Could not record grievance ticket. Please try again.');
@@ -585,12 +806,18 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
       date: g.createdAt ? new Date(g.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
       status: (g.status === 'Resolved' ? 'Resolved' : g.status === 'In Progress' ? 'Under Review' : 'Pending') as any,
       priority: g.priority,
+      attachments: g.attachments || [],
       notes: `Assigned to: ${g.assignedRole || 'HR Manager'}`,
     }));
 
-    const myBackendRequests = (requests || []).filter(
-      (r) => r.employeeId === currentUser?.id || r.empCode === currentUser?.empCode || r.employeeName === currentUser?.name
-    );
+    const myBackendRequests = (requests || [])
+      .filter(
+        (r) => r.employeeId === currentUser?.id || r.empCode === currentUser?.empCode || r.employeeName === currentUser?.name
+      )
+      .map((r) => ({
+        ...r,
+        attachments: r.attachments || (Array.isArray(r.metadata?.attachments) ? r.metadata.attachments : []),
+      }));
 
     const map = new Map<string, UnifiedRequestItem>();
     [...myBackendRequests, ...customRequests, ...fromGrievances].forEach((item) => {
@@ -873,6 +1100,9 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
               numberOfLines={3}
             />
 
+            {/* Document / Proof Attachment (Optional) */}
+            {renderAttachmentUploadSection('loan', loanAttachments)}
+
             {/* Submit Button */}
             <TouchableOpacity
               style={[styles.primaryActionBtn, { backgroundColor: '#059669' }]}
@@ -904,7 +1134,12 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
 
             {activeLoanRequests.length > 0 ? (
               activeLoanRequests.map((req) => (
-                <View key={req.id} style={[styles.itemCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+                <TouchableOpacity
+                  key={req.id}
+                  activeOpacity={0.8}
+                  onPress={() => setInspectRequest(req)}
+                  style={[styles.itemCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
+                >
                   <View style={styles.itemHeader}>
                     <View style={{ flex: 1, marginRight: 8 }}>
                       <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>{req.title}</Text>
@@ -961,7 +1196,27 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
                       Note: {req.notes}
                     </Text>
                   ) : null}
-                </View>
+
+                  {req.attachments && req.attachments.length > 0 && (
+                    <View style={[styles.historyAttachmentBadge, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder, marginTop: 8 }]}>
+                      <Icon name="document" size={12} color="#059669" />
+                      <Text style={[styles.historyAttachmentText, { color: '#059669' }]}>
+                        {req.attachments.length} {req.attachments.length === 1 ? 'Proof Document' : 'Proof Documents'} Attached
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 4, marginLeft: 'auto' }}>
+                        {req.attachments.slice(0, 2).map((att, attIdx) => (
+                          <Image key={attIdx} source={{ uri: att }} style={{ width: 20, height: 20, borderRadius: 4 }} />
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                  <View style={styles.itemCardFooterRow}>
+                    <Text style={[styles.tapToViewText, { color: theme.textMuted }]}>
+                      Tap to review workflow &amp; documents
+                    </Text>
+                    <Icon name="chevron-right" size={11} color={theme.textMuted} />
+                  </View>
+                </TouchableOpacity>
               ))
             ) : (
               <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.cardBorder, padding: 24, borderRadius: 12, alignItems: 'center' }]}>
@@ -1122,6 +1377,9 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
               numberOfLines={3}
             />
 
+            {/* Duty / Shift Proof Attachment (Optional) */}
+            {renderAttachmentUploadSection('compoff', compOffAttachments)}
+
             <TouchableOpacity
               style={[styles.primaryActionBtn, { backgroundColor: '#d97706' }]}
               onPress={handleSubmitCompOff}
@@ -1155,7 +1413,12 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
               </View>
             ) : (
               activeCompOffRequests.map((req) => (
-                <View key={req.id} style={[styles.itemCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+                <TouchableOpacity
+                  key={req.id}
+                  activeOpacity={0.8}
+                  onPress={() => setInspectRequest(req)}
+                  style={[styles.itemCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
+                >
                   <View style={styles.itemHeader}>
                     <View style={{ flex: 1, marginRight: 8 }}>
                       <Text style={[styles.itemTitle, { color: theme.textPrimary }]}>{req.title}</Text>
@@ -1196,7 +1459,27 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
                       </Text>
                     </View>
                   )}
-                </View>
+
+                  {req.attachments && req.attachments.length > 0 && (
+                    <View style={[styles.historyAttachmentBadge, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder, marginTop: 8 }]}>
+                      <Icon name="document" size={12} color="#d97706" />
+                      <Text style={[styles.historyAttachmentText, { color: '#d97706' }]}>
+                        {req.attachments.length} {req.attachments.length === 1 ? 'Duty Proof' : 'Duty Proofs'} Attached
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 4, marginLeft: 'auto' }}>
+                        {req.attachments.slice(0, 2).map((att, attIdx) => (
+                          <Image key={attIdx} source={{ uri: att }} style={{ width: 20, height: 20, borderRadius: 4 }} />
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                  <View style={styles.itemCardFooterRow}>
+                    <Text style={[styles.tapToViewText, { color: theme.textMuted }]}>
+                      Tap to review workflow &amp; documents
+                    </Text>
+                    <Icon name="chevron-right" size={11} color={theme.textMuted} />
+                  </View>
+                </TouchableOpacity>
               ))
             )}
           </View>
@@ -1327,6 +1610,10 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
               numberOfLines={4}
             />
 
+            {/* Evidence / Proof Attachment (Optional) */}
+            {renderAttachmentUploadSection('grievance', grievanceAttachments)}
+
+            {/* Submit Button */}
             <TouchableOpacity
               style={[styles.primaryActionBtn, { backgroundColor: '#dc2626' }]}
               onPress={handleSubmitGrievance}
@@ -1397,6 +1684,21 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
                   <Text style={[styles.itemDetails, { color: theme.textPrimary }]} numberOfLines={2}>
                     {ticket.description}
                   </Text>
+
+                  {ticket.attachments && ticket.attachments.length > 0 && (
+                    <View style={[styles.historyAttachmentBadge, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder, marginTop: 8 }]}>
+                      <Icon name="document" size={12} color="#dc2626" />
+                      <Text style={[styles.historyAttachmentText, { color: '#dc2626' }]}>
+                        {ticket.attachments.length} {ticket.attachments.length === 1 ? 'Evidence File' : 'Evidence Files'} Attached
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 4, marginLeft: 'auto' }}>
+                        {ticket.attachments.slice(0, 2).map((att, attIdx) => (
+                          <Image key={attIdx} source={{ uri: att }} style={{ width: 20, height: 20, borderRadius: 4 }} />
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
                   <View style={styles.ticketFooterRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                       <Icon name="chat" size={12} color={theme.primary} />
@@ -1494,8 +1796,10 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
               const isGrievance = item.category === 'grievance';
 
               return (
-                <View
+                <TouchableOpacity
                   key={item.id}
+                  activeOpacity={0.8}
+                  onPress={() => setInspectRequest(item)}
                   style={[
                     styles.itemCard,
                     {
@@ -1581,7 +1885,33 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
 
                   <Text style={[styles.itemDetails, { color: theme.textPrimary }]}>{item.details}</Text>
                   {item.notes && <Text style={[styles.itemNotes, { color: theme.textMuted }]}>Note: {item.notes}</Text>}
-                </View>
+
+                  {/* Attachment indicator if proof files exist */}
+                  {item.attachments && item.attachments.length > 0 && (
+                    <View style={[styles.historyAttachmentBadge, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder, marginTop: 8 }]}>
+                      <Icon name="document" size={12} color={theme.primary} />
+                      <Text style={[styles.historyAttachmentText, { color: theme.primary }]}>
+                        {item.attachments.length} {item.attachments.length === 1 ? 'Verification Proof' : 'Verification Proofs'} Attached
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 4, marginLeft: 'auto' }}>
+                        {item.attachments.slice(0, 3).map((att, attIdx) => (
+                          <Image
+                            key={attIdx}
+                            source={{ uri: att }}
+                            style={{ width: 20, height: 20, borderRadius: 4, backgroundColor: '#cbd5e1' }}
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.itemCardFooterRow}>
+                    <Text style={[styles.tapToViewText, { color: theme.textMuted }]}>
+                      Tap to review workflow &amp; verification proofs
+                    </Text>
+                    <Icon name="chevron-right" size={11} color={theme.textMuted} />
+                  </View>
+                </TouchableOpacity>
               );
             })
           )}
@@ -1615,6 +1945,41 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
                 <Text style={[styles.ticketInitialDate, { color: theme.textMuted }]}>
                   Logged on {selectedTicket?.createdAt ? new Date(selectedTicket.createdAt).toLocaleString() : ''}
                 </Text>
+
+                {/* Attached Evidence & Proofs */}
+                {selectedTicket?.attachments && selectedTicket.attachments.length > 0 && (
+                  <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.cardBorder }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: theme.textMuted, marginBottom: 6 }}>
+                      Attached Evidence & Proofs ({selectedTicket.attachments.length}):
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                      {selectedTicket.attachments.map((att, attIdx) => (
+                        <TouchableOpacity
+                          key={attIdx}
+                          onPress={() => setPreviewModalImage(att)}
+                          activeOpacity={0.8}
+                          style={{
+                            borderWidth: 1,
+                            borderColor: theme.cardBorder,
+                            borderRadius: 8,
+                            padding: 4,
+                            backgroundColor: theme.card,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Image
+                            source={{ uri: att }}
+                            style={{ width: 64, height: 64, borderRadius: 6, backgroundColor: '#cbd5e1' }}
+                            resizeMode="cover"
+                          />
+                          <Text style={{ fontSize: 9.5, color: theme.primary, fontWeight: '700', marginTop: 3 }}>
+                            Tap to View
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
               </View>
 
               {(selectedTicket?.thread || []).map((msg) => {
@@ -1814,6 +2179,265 @@ export function RequestsScreen({ theme, initialCategory = 'loan', onNavigate }: 
                 <Text style={[styles.quickDateText, { color: theme.textPrimary }]}>Last Sunday</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Approver & Applicant Inspection Modal */}
+      <Modal visible={!!inspectRequest} transparent animationType="slide">
+        <View style={styles.inspectModalOverlay}>
+          <View style={[styles.inspectModalCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
+            {/* Header */}
+            <View style={[styles.inspectModalHeader, { borderBottomColor: theme.cardBorder }]}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <Text style={[styles.inspectModalTitle, { color: theme.textPrimary }]} numberOfLines={1}>
+                    {inspectRequest?.title}
+                  </Text>
+                  <View
+                    style={[
+                      styles.statusPill,
+                      {
+                        backgroundColor:
+                          inspectRequest?.status === 'Approved' || inspectRequest?.status === 'Disbursed' || inspectRequest?.status === 'Resolved'
+                            ? '#dcfce7'
+                            : inspectRequest?.status === 'Rejected'
+                            ? '#fee2e2'
+                            : '#fef3c7',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        {
+                          color:
+                            inspectRequest?.status === 'Approved' || inspectRequest?.status === 'Disbursed' || inspectRequest?.status === 'Resolved'
+                              ? '#15803d'
+                              : inspectRequest?.status === 'Rejected'
+                              ? '#b91c1c'
+                              : '#b45309',
+                        },
+                      ]}
+                    >
+                      {inspectRequest?.status}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[styles.inspectModalSubtitle, { color: theme.textMuted }]}>
+                  {inspectRequest?.type} • ID: {inspectRequest?.id}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setInspectRequest(null)} style={styles.inspectCloseBtn}>
+                <Icon name="cross" size={16} color={theme.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Content Body */}
+            <ScrollView style={styles.inspectBody} showsVerticalScrollIndicator={false}>
+              {/* Applicant & Summary Section */}
+              <View style={[styles.inspectSectionCard, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder }]}>
+                <Text style={[styles.inspectSectionHeading, { color: theme.primary }]}>
+                  Request Summary &amp; Details
+                </Text>
+
+                <View style={styles.inspectRow}>
+                  <Text style={[styles.inspectLabel, { color: theme.textMuted }]}>Submitted By:</Text>
+                  <Text style={[styles.inspectValue, { color: theme.textPrimary }]}>
+                    {inspectRequest?.applicantName || currentUser?.name || 'Employee'}
+                    {inspectRequest?.applicantEmpCode ? ` (${inspectRequest.applicantEmpCode})` : ''}
+                  </Text>
+                </View>
+
+                <View style={styles.inspectRow}>
+                  <Text style={[styles.inspectLabel, { color: theme.textMuted }]}>Submission Date:</Text>
+                  <Text style={[styles.inspectValue, { color: theme.textPrimary }]}>{inspectRequest?.date}</Text>
+                </View>
+
+                <View style={styles.inspectRow}>
+                  <Text style={[styles.inspectLabel, { color: theme.textMuted }]}>Particulars:</Text>
+                  <Text style={[styles.inspectValue, { color: theme.textPrimary, flex: 1, textAlign: 'right' }]}>
+                    {inspectRequest?.details}
+                  </Text>
+                </View>
+
+                {inspectRequest?.notes ? (
+                  <View style={[styles.inspectRow, { alignItems: 'flex-start' }]}>
+                    <Text style={[styles.inspectLabel, { color: theme.textMuted }]}>Remarks / Notes:</Text>
+                    <Text style={[styles.inspectValue, { color: theme.textPrimary, flex: 1, textAlign: 'right' }]}>
+                      {inspectRequest.notes}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* Attached Verification Proofs & Documents */}
+              <View style={[styles.inspectSectionCard, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder, marginTop: 12 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={[styles.inspectSectionHeading, { color: theme.primary, marginBottom: 0 }]}>
+                    Attached Verification Documents
+                  </Text>
+                  {inspectRequest?.attachments && inspectRequest.attachments.length > 0 && (
+                    <View style={[styles.optionalBadge, { backgroundColor: '#10b98120' }]}>
+                      <Text style={[styles.optionalBadgeText, { color: '#059669' }]}>
+                        {inspectRequest.attachments.length} {inspectRequest.attachments.length === 1 ? 'Proof' : 'Proofs'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {inspectRequest?.attachments && inspectRequest.attachments.length > 0 ? (
+                  <>
+                    <Text style={[styles.inspectHelpText, { color: theme.textMuted }]}>
+                      Tap any document or photo below to view in full resolution:
+                    </Text>
+                    <View style={styles.inspectThumbGrid}>
+                      {inspectRequest.attachments.map((docUri, dIdx) => (
+                        <TouchableOpacity
+                          key={dIdx}
+                          style={[styles.inspectThumbItem, { borderColor: theme.cardBorder, backgroundColor: theme.card }]}
+                          onPress={() => setPreviewModalImage(docUri)}
+                          activeOpacity={0.8}
+                        >
+                          <Image source={{ uri: docUri }} style={styles.inspectThumbImg} resizeMode="cover" />
+                          <View style={styles.inspectThumbBadge}>
+                            <Icon name="document" size={10} color="#ffffff" />
+                            <Text style={styles.inspectThumbBadgeText}>Proof #{dIdx + 1}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                ) : (
+                  <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                    <Icon name="document" size={20} color={theme.textMuted} />
+                    <Text style={{ fontSize: 12, color: theme.textMuted, marginTop: 4 }}>
+                      No supporting documents or proofs attached.
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Workflow Steps if present */}
+              {inspectRequest?.steps && inspectRequest.steps.length > 0 && (
+                <View style={[styles.inspectSectionCard, { backgroundColor: theme.inputBg, borderColor: theme.cardBorder, marginTop: 12 }]}>
+                  <Text style={[styles.inspectSectionHeading, { color: theme.primary }]}>
+                    Approval Workflow Hierarchy
+                  </Text>
+                  {inspectRequest.steps.map((st, sIdx) => {
+                    const isDone = st.status === 'completed';
+                    const isInProg = st.status === 'in-progress';
+                    return (
+                      <View key={sIdx} style={styles.inspectWorkflowStep}>
+                        <View
+                          style={[
+                            styles.inspectStepDot,
+                            {
+                              backgroundColor: isDone ? '#15803d' : isInProg ? '#b45309' : '#94a3b8',
+                            },
+                          ]}
+                        >
+                          {isDone ? <Icon name="check" size={10} color="#ffffff" /> : null}
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={[styles.inspectStepTitle, { color: theme.textPrimary }]}>{st.title}</Text>
+                          {st.subtitle ? (
+                            <Text style={[styles.inspectStepSubtitle, { color: theme.textMuted }]}>{st.subtitle}</Text>
+                          ) : null}
+                        </View>
+                        <Text
+                          style={{
+                            fontSize: 10,
+                            fontWeight: '700',
+                            color: isDone ? '#15803d' : isInProg ? '#b45309' : '#94a3b8',
+                          }}
+                        >
+                          {isDone ? 'Completed' : isInProg ? 'In Progress' : 'Pending'}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Approver Action Footer (Approve / Reject) */}
+            {((inspectRequest?.status as string) === 'Pending' ||
+              (inspectRequest?.status as string) === 'Under Review' ||
+              (inspectRequest?.status as string) === 'In Review' ||
+              (inspectRequest?.status as string) === 'Submitted' ||
+              (inspectRequest?.status as string) === 'Open') && (
+              <View style={[styles.inspectActionsBar, { borderTopColor: theme.cardBorder }]}>
+                <TouchableOpacity
+                  style={[styles.inspectRejectBtn, { borderColor: '#ef4444' }]}
+                  disabled={actingOnRequestId === inspectRequest?.id}
+                  onPress={() => {
+                    if (inspectRequest) {
+                      handleApproverAction(inspectRequest.id || inspectRequest.requestId!, 'reject');
+                    }
+                  }}
+                >
+                  {actingOnRequestId === inspectRequest?.id ? (
+                    <ActivityIndicator color="#ef4444" size="small" />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Icon name="cross" size={13} color="#ef4444" />
+                      <Text style={[styles.inspectActionBtnText, { color: '#ef4444' }]}>Decline Request</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.inspectApproveBtn, { backgroundColor: '#10b981' }]}
+                  disabled={actingOnRequestId === inspectRequest?.id}
+                  onPress={() => {
+                    if (inspectRequest) {
+                      handleApproverAction(inspectRequest.id || inspectRequest.requestId!, 'approve');
+                    }
+                  }}
+                >
+                  {actingOnRequestId === inspectRequest?.id ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Icon name="check" size={13} color="#ffffff" />
+                      <Text style={[styles.inspectActionBtnText, { color: '#ffffff' }]}>Approve Request</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Full-Screen Attachment Image Lightbox */}
+      <Modal visible={!!previewModalImage} transparent animationType="fade">
+        <View style={styles.lightboxOverlay}>
+          <View style={styles.lightboxHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Icon name="document" size={16} color="#ffffff" />
+              <Text style={styles.lightboxTitle}>Verification Document Preview</Text>
+            </View>
+            <TouchableOpacity onPress={() => setPreviewModalImage(null)} style={styles.lightboxCloseBtn}>
+              <Icon name="cross" size={18} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.lightboxImageContainer}>
+            {previewModalImage && (
+              <Image
+                source={{ uri: previewModalImage }}
+                style={styles.lightboxImage}
+                resizeMode="contain"
+              />
+            )}
+          </View>
+
+          <View style={styles.lightboxFooter}>
+            <Text style={styles.lightboxFooterText}>
+              Proof document uploaded by employee • Tap ✕ to close
+            </Text>
           </View>
         </View>
       </Modal>
@@ -2505,5 +3129,314 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 2,
+  },
+
+  // Attachment upload box & pills
+  attachmentBox: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  attachmentBoxHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  attachmentBoxTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  optionalBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  optionalBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  attachmentBoxHelp: {
+    fontSize: 11,
+    lineHeight: 15,
+    marginBottom: 10,
+  },
+  attachBtnRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  attachMiniBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: 9,
+    borderWidth: 1,
+  },
+  attachMiniBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  attachedPillContainer: {
+    marginTop: 10,
+    gap: 6,
+  },
+  attachedPillItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 6,
+    paddingRight: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  attachedPillThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 6,
+    backgroundColor: '#cbd5e1',
+  },
+  attachedPillName: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  attachedPillSize: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  attachedPillRemove: {
+    padding: 6,
+    marginLeft: 6,
+  },
+
+  // History & List Card Attachment Elements
+  historyAttachmentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+  },
+  historyAttachmentText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  itemCardFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#00000010',
+  },
+
+  // Inspect Request Modal Styles
+  inspectModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'flex-end',
+  },
+  inspectModalCard: {
+    maxHeight: '90%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    paddingBottom: 24,
+  },
+  inspectModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  inspectModalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  inspectModalSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  inspectCloseBtn: {
+    padding: 8,
+    borderRadius: 8,
+    marginLeft: 10,
+  },
+  inspectBody: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  inspectSectionCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+  },
+  inspectSectionHeading: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+  inspectRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  inspectLabel: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  inspectValue: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  inspectHelpText: {
+    fontSize: 11,
+    marginBottom: 10,
+    lineHeight: 15,
+  },
+  inspectThumbGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  inspectThumbItem: {
+    width: 95,
+    height: 95,
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  inspectThumbImg: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#cbd5e1',
+  },
+  inspectThumbBadge: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  inspectThumbBadgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  inspectWorkflowStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#00000008',
+  },
+  inspectStepDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inspectStepTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  inspectStepSubtitle: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  inspectActionsBar: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    marginTop: 12,
+  },
+  inspectApproveBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inspectRejectBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inspectActionBtnText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+
+  // Full-Screen Image Lightbox Styles
+  lightboxOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'space-between',
+  },
+  lightboxHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'ios' ? 48 : 20,
+    paddingHorizontal: 18,
+    paddingBottom: 14,
+  },
+  lightboxTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  lightboxCloseBtn: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  lightboxImageContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  lightboxImage: {
+    width: '100%',
+    height: '100%',
+  },
+  lightboxFooter: {
+    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  lightboxFooterText: {
+    color: '#ffffff99',
+    fontSize: 11,
+    textAlign: 'center',
   },
 });
