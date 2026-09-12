@@ -47,7 +47,12 @@ export type IconName =
   | 'receipt-cutoff'
   | 'receipt'
   | 'search'
-  | 'dash';
+  | 'dash'
+  | 'plus'
+  | 'users'
+  | 'arrow-left'
+  | 'more-vertical'
+  | 'check-all';
 
 interface IconProps {
   name: IconName;
@@ -58,6 +63,66 @@ interface IconProps {
 export function Icon({ name, size = 20, color = '#0f766e' }: IconProps) {
   // Pure vector shape representations for all UI components
   switch (name) {
+    case 'plus':
+      return (
+        <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: size * 0.65, height: 2.2, backgroundColor: color, borderRadius: 1.1 }} />
+          <View style={{ width: 2.2, height: size * 0.65, backgroundColor: color, borderRadius: 1.1, position: 'absolute' }} />
+        </View>
+      );
+
+    case 'arrow-left':
+      return (
+        <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+          <View
+            style={{
+              width: size * 0.42,
+              height: size * 0.42,
+              borderBottomWidth: 2.2,
+              borderLeftWidth: 2.2,
+              borderColor: color,
+              transform: [{ rotate: '45deg' }],
+              marginLeft: size * 0.15,
+            }}
+          />
+        </View>
+      );
+
+    case 'users':
+      return (
+        <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+            {/* Left smaller user */}
+            <View style={{ alignItems: 'center', marginRight: -size * 0.12, opacity: 0.8 }}>
+              <View style={{ width: size * 0.32, height: size * 0.32, borderRadius: size * 0.16, backgroundColor: color }} />
+              <View style={{ width: size * 0.5, height: size * 0.26, borderTopLeftRadius: size * 0.25, borderTopRightRadius: size * 0.25, backgroundColor: color, marginTop: 1 }} />
+            </View>
+            {/* Main center user */}
+            <View style={{ alignItems: 'center', zIndex: 1 }}>
+              <View style={{ width: size * 0.4, height: size * 0.4, borderRadius: size * 0.2, backgroundColor: color, borderWidth: 1.2, borderColor: '#ffffff' }} />
+              <View style={{ width: size * 0.65, height: size * 0.32, borderTopLeftRadius: size * 0.325, borderTopRightRadius: size * 0.325, backgroundColor: color, marginTop: 1, borderWidth: 1.2, borderColor: '#ffffff', borderBottomWidth: 0 }} />
+            </View>
+          </View>
+        </View>
+      );
+
+    case 'more-vertical':
+      return (
+        <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'space-evenly', paddingVertical: size * 0.15 }}>
+          <View style={{ width: 3.5, height: 3.5, borderRadius: 1.75, backgroundColor: color }} />
+          <View style={{ width: 3.5, height: 3.5, borderRadius: 1.75, backgroundColor: color }} />
+          <View style={{ width: 3.5, height: 3.5, borderRadius: 1.75, backgroundColor: color }} />
+        </View>
+      );
+
+    case 'check-all':
+      return (
+        <View style={{ flexDirection: 'row', alignItems: 'center', height: size }}>
+          <Text style={{ color, fontSize: size * 0.75, fontWeight: '900' }}>✓</Text>
+          <Text style={{ color, fontSize: size * 0.75, fontWeight: '900', marginLeft: -size * 0.4 }}>✓</Text>
+        </View>
+      );
+
     case 'search':
       return (
         <Svg width={size} height={size} viewBox="0 0 16 16" fill={color}>

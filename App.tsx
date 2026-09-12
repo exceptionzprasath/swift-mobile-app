@@ -22,6 +22,7 @@ import { HolidaysScreen } from './src/screens/HolidaysScreen';
 import { DocumentsScreen } from './src/screens/DocumentsScreen';
 import { TasksScreen } from './src/screens/TasksScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
+import { TeamChatScreen } from './src/screens/TeamChatScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { GrievanceScreen } from './src/screens/GrievanceScreen';
 import { RequestsScreen } from './src/screens/RequestsScreen';
@@ -29,7 +30,7 @@ import { RequestsScreen } from './src/screens/RequestsScreen';
 const THEME_PALETTE_KEY = '@swift_theme_palette';
 const DARK_MODE_KEY = '@swift_dark_mode';
 
-export type AppNavTab = TabType | 'notifications' | 'holidays' | 'documents' | 'tasks' | 'chat' | 'profile' | 'grievance' | 'requests';
+export type AppNavTab = TabType | 'notifications' | 'holidays' | 'documents' | 'tasks' | 'chat' | 'team-chat' | 'profile' | 'grievance' | 'requests';
 
 function MainAppContent() {
   const [showSplash, setShowSplash] = useState(true);
@@ -151,6 +152,8 @@ function MainAppContent() {
         return <TasksScreen theme={theme} />;
       case 'chat':
         return <ChatScreen theme={theme} />;
+      case 'team-chat':
+        return <TeamChatScreen theme={theme} onBack={() => setActiveTab('home')} />;
       case 'requests':
         return <RequestsScreen theme={theme} onNavigate={(tab) => setActiveTab(tab)} />;
       case 'grievance':
@@ -211,7 +214,7 @@ function MainAppContent() {
       <View style={[styles.body, { backgroundColor: theme.bg }]}>{renderActiveScreen()}</View>
 
       {/* Bottom Navigation */}
-      {(!isKeyboardVisible || activeTab !== 'chat') && (
+      {(!isKeyboardVisible || (activeTab !== 'chat' && activeTab !== 'team-chat')) && (
         <TabBar
           theme={theme}
           selectedPaletteId={selectedPaletteId}
