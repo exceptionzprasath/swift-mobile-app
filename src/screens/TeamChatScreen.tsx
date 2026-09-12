@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,17 +8,23 @@ import {
   TextInput,
   Image,
   Modal,
-  FlatList,
   Platform,
   KeyboardAvoidingView,
   Keyboard,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
 import { useAppContext } from '../context/AppContext';
+import {
+  fetchTeamGroups,
+  fetchGroupMessages,
+  requestCreateGroup,
+  getWebSocketUrl,
+} from '../services/api';
 
 interface TeamChatScreenProps {
   theme: ThemeColors;
@@ -36,12 +42,14 @@ export interface TeamGroupMember {
 
 export interface TeamGroupMessage {
   id: string;
+  groupId?: string;
   senderId: string;
   senderName: string;
   senderRole?: string;
   text: string;
   time: string;
   isSystem?: boolean;
+  createdAt?: string;
 }
 
 export interface TeamGroup {
@@ -51,41 +59,50 @@ export interface TeamGroup {
   iconEmoji: string;
   iconBgColor: string;
   createdBy: string;
+  creatorId?: string;
   createdAt: string;
+  status: 'approved' | 'pending_approval' | 'rejected';
   members: TeamGroupMember[];
   lastMessageText: string;
   lastMessageTime: string;
   lastMessageSender: string;
   unreadCount: number;
+  requestId?: string;
+  updatedAt?: string;
 }
 
-const STORAGE_GROUPS_KEY = '@swift_team_groups_v1';
-const STORAGE_MSGS_PREFIX = '@swift_team_group_msgs_';
+const STORAGE_GROUPS_KEY = '@swift_team_groups_cache_v2';
+const STORAGE_MSGS_PREFIX = '@swift_team_group_msgs_cache_';
 
 const EMOJI_OPTIONS = ['🚀', '💼', '⚡', '🎨', '📢', '☕', '🌟', '🎯', '💡', '🛡️', '📊', '🤝'];
 const COLOR_OPTIONS = ['#075E54', '#128C7E', '#25D366', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
 
 const PARTICIPANT_COLORS = [
-  '#0284c7', // Sky blue
-  '#7c3aed', // Purple
-  '#059669', // Emerald
-  '#d97706', // Amber
-  '#dc2626', // Red
-  '#db2777', // Pink
-  '#2563eb', // Blue
-  '#4f46e5', // Indigo
+  '#0284c7',
+  '#7c3aed',
+  '#059669',
+  '#d97706',
+  '#dc2626',
+  '#db2777',
+  '#2563eb',
+  '#4f46e5',
 ];
 
 export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
   const { currentUser, employees } = useAppContext();
   const currentUserId = currentUser?.id || currentUser?.empCode || 'user-1';
   const currentUserName = currentUser?.name || 'You';
+  const effectiveTenantId = currentUser?.tenantId || 'swift';
 
   // Screen View States: 'list' | 'create_step1' | 'create_step2' | 'chat'
   const [currentView, setCurrentView] = useState<'list' | 'create_step1' | 'create_step2' | 'chat'>('list');
+  const [activeGroupTab, setActiveGroupTab] = useState<'approved' | 'pending'>('approved');
   const [activeGroup, setActiveGroup] = useState<TeamGroup | null>(null);
   const [groups, setGroups] = useState<TeamGroup[]>([]);
   const [groupMessages, setGroupMessages] = useState<TeamGroupMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmittingGroup, setIsSubmittingGroup] = useState(false);
+  const [isConnectedWs, setIsConnectedWs] = useState(false);
 
   // Search in group list
   const [searchQuery, setSearchQuery] = useState('');
@@ -106,7 +123,15 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
   const chatScrollRef = useRef<ScrollView>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const activeGroupIdRef = useRef<string | null>(null);
+
+  // Keep ref up to date for WS callbacks
+  useEffect(() => {
+    activeGroupIdRef.current = activeGroup?.id || null;
+  }, [activeGroup]);
 
   let bottomInset = 0;
   try {
@@ -114,15 +139,14 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
     bottomInset = insets?.bottom || 0;
   } catch (e) {}
 
-  const safeBottomMargin = Math.max(bottomInset, 12) + 10;
-  const tabTabBarHeight = 68;
-  const bottomOffsetWhenTabBarVisible = safeBottomMargin + tabTabBarHeight + 8;
+  const safeBottomMargin = Math.max(bottomInset, 8) + 6;
+  const floatingBtnBottomMargin = Math.max(bottomInset, 16) + 14;
 
+  // On Android with windowSoftInputMode adjustResize, the window automatically resizes to the keyboard.
+  // We only need a snug 6px padding above the keyboard when typing, just like WhatsApp.
   const currentBottomMargin = isKeyboardVisible
-    ? Platform.OS === 'ios'
-      ? 20
-      : (keyboardHeight > 0 ? keyboardHeight + 10 : 20)
-    : (currentView === 'chat' ? safeBottomMargin : bottomOffsetWhenTabBarVisible);
+    ? 6
+    : (currentView === 'chat' ? safeBottomMargin : floatingBtnBottomMargin);
 
   // Keyboard listeners
   useEffect(() => {
@@ -146,129 +170,234 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
     };
   }, []);
 
-  // Initial load of groups from storage or fallback defaults
-  useEffect(() => {
-    loadGroupsFromStorage();
-  }, []);
-
-  const loadGroupsFromStorage = async () => {
+  // ==========================================
+  // WEBSOCKET REAL-TIME CONNECTION
+  // ==========================================
+  const connectWebSocket = useCallback(() => {
     try {
-      const saved = await AsyncStorage.getItem(STORAGE_GROUPS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setGroups(parsed);
-          return;
+      const url = getWebSocketUrl();
+      console.log('[TeamChat WS] Connecting to:', url);
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('[TeamChat WS] Connected successfully');
+        setIsConnectedWs(true);
+        // Register client
+        ws.send(
+          JSON.stringify({
+            type: 'join',
+            tenantId: effectiveTenantId,
+            employeeId: currentUserId,
+            groupId: activeGroupIdRef.current,
+          })
+        );
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('[TeamChat WS] Received message:', data.type);
+
+          if (data.type === 'new_message') {
+            const { groupId, message } = data;
+            // If message is for currently open group chat:
+            if (activeGroupIdRef.current === groupId) {
+              setGroupMessages((prev) => {
+                // 1. If message with same ID already exists, replace it cleanly
+                const existingIdx = prev.findIndex((m) => m.id === message.id);
+                if (existingIdx !== -1) {
+                  const updated = [...prev];
+                  updated[existingIdx] = message;
+                  return updated;
+                }
+
+                // 2. If sender is current user and matches recent optimistic message text, replace the optimistic message
+                const optimisticMatchIdx = prev.findIndex(
+                  (m) =>
+                    m.senderId === message.senderId &&
+                    m.text === message.text &&
+                    Math.abs(new Date(m.createdAt || 0).getTime() - new Date(message.createdAt || 0).getTime()) < 6000
+                );
+                if (optimisticMatchIdx !== -1) {
+                  const updated = [...prev];
+                  updated[optimisticMatchIdx] = message;
+                  return updated;
+                }
+
+                return [...prev, message];
+              });
+              setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 80);
+            }
+
+            // Update preview in groups list
+            setGroups((prev) =>
+              prev.map((g) =>
+                g.id === groupId
+                  ? {
+                      ...g,
+                      lastMessageText: message.text,
+                      lastMessageTime: message.time,
+                      lastMessageSender: message.senderName,
+                      unreadCount: activeGroupIdRef.current === groupId ? 0 : g.unreadCount + 1,
+                    }
+                  : g
+              )
+            );
+          } else if (data.type === 'group_status_changed') {
+            const { groupId, status, group } = data;
+            console.log(`[TeamChat WS] Group ${groupId} status changed to ${status}`);
+
+            setGroups((prev) => {
+              const exists = prev.some((g) => g.id === groupId);
+              if (exists) {
+                return prev.map((g) => (g.id === groupId ? { ...g, status, ...(group || {}) } : g));
+              } else if (group) {
+                return [group, ...prev];
+              }
+              return prev;
+            });
+
+            if (status === 'approved') {
+              Alert.alert(
+                'Group Approved! 🎉',
+                `Your group "${group?.subject || 'Team Group'}" has been approved by the Admin and is now ready for chat!`
+              );
+            }
+          }
+        } catch (err) {
+          console.warn('[TeamChat WS] Error parsing message:', err);
         }
+      };
+
+      ws.onerror = (e: any) => {
+        console.warn('[TeamChat WS] Socket error:', e?.message || e);
+        setIsConnectedWs(false);
+      };
+
+      ws.onclose = () => {
+        console.log('[TeamChat WS] Disconnected');
+        setIsConnectedWs(false);
+      };
+    } catch (err) {
+      console.warn('[TeamChat WS] Connection exception:', err);
+    }
+  }, [effectiveTenantId, currentUserId]);
+
+  useEffect(() => {
+    connectWebSocket();
+
+    // Heartbeat ping every 25 seconds
+    const pingInterval = setInterval(() => {
+      if (wsRef.current && wsRef.current.readyState === 1) {
+        wsRef.current.send(JSON.stringify({ type: 'ping' }));
       }
-      // Generate default starter groups if empty
-      const defaultGroups: TeamGroup[] = [
-        {
-          id: 'grp-eng',
-          subject: 'Team Engineering',
-          description: 'Core Engineering & Mobile App Development',
-          iconEmoji: '⚡',
-          iconBgColor: '#075E54',
-          createdBy: currentUserName,
-          createdAt: 'Yesterday',
-          members: [
-            { id: currentUserId, name: currentUserName, role: 'Employee', isAdmin: true },
-            { id: 'emp-2', name: 'Arun Kumar', role: 'Senior Developer', department: 'Engineering' },
-            { id: 'emp-3', name: 'Priya Sharma', role: 'UI/UX Designer', department: 'Design' },
-            { id: 'emp-4', name: 'Mekha M', role: 'Frontend Lead', department: 'Engineering' },
-          ],
-          lastMessageText: 'Please review the release build for Sprint 4.',
-          lastMessageTime: '10:45 AM',
-          lastMessageSender: 'Arun Kumar',
-          unreadCount: 2,
-        },
-        {
-          id: 'grp-ops',
-          subject: 'Operations & HR Updates',
-          description: 'Company-wide announcements, attendance & policy clarifications',
-          iconEmoji: '📢',
-          iconBgColor: '#128C7E',
-          createdBy: 'HR Admin',
-          createdAt: '3 days ago',
-          members: [
-            { id: currentUserId, name: currentUserName, role: 'Employee' },
-            { id: 'emp-5', name: 'Sarah Jenkins', role: 'HR Manager', department: 'Human Resources', isAdmin: true },
-            { id: 'emp-6', name: 'Vikram Patel', role: 'Operations Head', department: 'Operations' },
-          ],
-          lastMessageText: 'Reminder: Friday team townhall starts at 4 PM.',
-          lastMessageTime: 'Yesterday',
-          lastMessageSender: 'Sarah Jenkins',
-          unreadCount: 0,
-        },
-      ];
-      setGroups(defaultGroups);
-      await AsyncStorage.setItem(STORAGE_GROUPS_KEY, JSON.stringify(defaultGroups));
+    }, 25000);
+
+    return () => {
+      clearInterval(pingInterval);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [connectWebSocket]);
+
+  // When active group changes, inform WS server of room switch
+  useEffect(() => {
+    if (wsRef.current && wsRef.current.readyState === 1 && activeGroup) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'join',
+          tenantId: effectiveTenantId,
+          employeeId: currentUserId,
+          groupId: activeGroup.id,
+        })
+      );
+    }
+  }, [activeGroup, effectiveTenantId, currentUserId]);
+
+  // ==========================================
+  // LOAD REAL GROUPS FROM BACKEND API
+  // ==========================================
+  const loadGroups = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const apiGroups = await fetchTeamGroups(effectiveTenantId, currentUserId);
+      if (Array.isArray(apiGroups)) {
+        setGroups(apiGroups);
+        await AsyncStorage.setItem(STORAGE_GROUPS_KEY, JSON.stringify(apiGroups));
+      } else {
+        // Fallback to cache if offline
+        const cached = await AsyncStorage.getItem(STORAGE_GROUPS_KEY);
+        if (cached) setGroups(JSON.parse(cached));
+      }
     } catch (e) {
       console.warn('[TeamChat] Failed to load groups:', e);
+      const cached = await AsyncStorage.getItem(STORAGE_GROUPS_KEY);
+      if (cached) setGroups(JSON.parse(cached));
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [effectiveTenantId, currentUserId]);
 
-  const saveGroupsToStorage = async (updatedGroups: TeamGroup[]) => {
-    try {
-      setGroups(updatedGroups);
-      await AsyncStorage.setItem(STORAGE_GROUPS_KEY, JSON.stringify(updatedGroups));
-    } catch (e) {
-      console.warn('[TeamChat] Failed to save groups:', e);
-    }
-  };
+  useEffect(() => {
+    loadGroups();
+  }, [loadGroups]);
 
   // Open a group conversation
   const handleOpenGroup = async (group: TeamGroup) => {
+    if (group.status === 'pending_approval') {
+      Alert.alert(
+        'Awaiting Admin Approval',
+        `Group "${group.subject}" is currently pending approval by your company admin. Once approved, the chat will be unlocked for all ${group.members?.length || 0} participants.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    if (group.status === 'rejected') {
+      Alert.alert(
+        'Group Request Declined',
+        `The creation request for group "${group.subject}" was declined by the administrator.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     setActiveGroup(group);
     setCurrentView('chat');
 
-    // Mark as read in list
-    if (group.unreadCount > 0) {
-      const updated = groups.map((g) => (g.id === group.id ? { ...g, unreadCount: 0 } : g));
-      saveGroupsToStorage(updated);
-    }
-
-    // Load messages for this group
+    // Fetch real group messages from API
     try {
-      const savedMsgs = await AsyncStorage.getItem(`${STORAGE_MSGS_PREFIX}${group.id}`);
-      if (savedMsgs) {
-        setGroupMessages(JSON.parse(savedMsgs));
+      const msgs = await fetchGroupMessages(effectiveTenantId, group.id);
+      if (Array.isArray(msgs) && msgs.length > 0) {
+        setGroupMessages(msgs);
+        await AsyncStorage.setItem(`${STORAGE_MSGS_PREFIX}${group.id}`, JSON.stringify(msgs));
       } else {
-        // Initial default message
-        const initialMsgs: TeamGroupMessage[] = [
-          {
-            id: `sys-1`,
-            senderId: 'system',
-            senderName: 'System',
-            text: `🔒 Messages and calls are end-to-end encrypted within ${currentUser?.companyName || 'InkPen Swift'}. No one outside can read them.`,
-            time: group.createdAt,
-            isSystem: true,
-          },
-          {
-            id: `sys-2`,
-            senderId: 'system',
-            senderName: 'System',
-            text: `${group.createdBy} created group "${group.subject}"`,
-            time: group.createdAt,
-            isSystem: true,
-          },
-          {
-            id: `msg-init`,
-            senderId: group.members[1]?.id || 'emp-2',
-            senderName: group.lastMessageSender || 'Teammate',
-            text: group.lastMessageText || 'Hello everyone! Welcome to the new team group.',
-            time: group.lastMessageTime || '10:00 AM',
-          },
-        ];
-        setGroupMessages(initialMsgs);
-        await AsyncStorage.setItem(`${STORAGE_MSGS_PREFIX}${group.id}`, JSON.stringify(initialMsgs));
+        const cached = await AsyncStorage.getItem(`${STORAGE_MSGS_PREFIX}${group.id}`);
+        if (cached) {
+          setGroupMessages(JSON.parse(cached));
+        } else {
+          // Clean initial system encryption note
+          const initialMsgs: TeamGroupMessage[] = [
+            {
+              id: `sys-1`,
+              senderId: 'system',
+              senderName: 'System',
+              text: `🔒 Messages and calls are end-to-end encrypted within your organization.`,
+              time: group.createdAt ? new Date(group.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today',
+              isSystem: true,
+            },
+          ];
+          setGroupMessages(initialMsgs);
+        }
       }
-    } catch (e) {
-      console.warn('[TeamChat] Error loading group messages:', e);
+    } catch (err) {
+      console.warn('[TeamChat] Error loading messages:', err);
     }
   };
 
-  // Start Group Creation Flow (WhatsApp Style Step 1)
+  // Start Group Creation Flow
   const handleStartCreateGroup = () => {
     setSelectedMemberIds([]);
     setParticipantSearch('');
@@ -279,14 +408,12 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
     setCurrentView('create_step1');
   };
 
-  // Toggle selection of a member
   const handleToggleMember = (empId: string) => {
     setSelectedMemberIds((prev) =>
       prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]
     );
   };
 
-  // Proceed to Step 2 (Group Subject & Icon)
   const handleProceedToStep2 = () => {
     if (selectedMemberIds.length === 0) {
       Alert.alert('Select Participants', 'Please select at least 1 colleague to create a group.');
@@ -295,12 +422,14 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
     setCurrentView('create_step2');
   };
 
-  // Finalize & Create WhatsApp Group
+  // Finalize Group Creation: SUBMITS APPROVAL REQUEST TO BACKEND
   const handleFinalizeCreateGroup = async () => {
     if (!groupSubject.trim()) {
       Alert.alert('Group Subject Required', 'Please provide a subject for the new group.');
       return;
     }
+
+    setIsSubmittingGroup(true);
 
     const selectedEmployees = (employees || []).filter((e: any) =>
       selectedMemberIds.includes(e.id || e.empCode)
@@ -325,51 +454,36 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
       })),
     ];
 
-    const newGroupId = `grp-${Date.now()}`;
-    const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    try {
+      const res = await requestCreateGroup({
+        tenantId: effectiveTenantId,
+        creatorId: currentUserId,
+        creatorName: currentUserName,
+        subject: groupSubject.trim(),
+        description: groupDescription.trim() || undefined,
+        iconEmoji: selectedEmoji,
+        iconBgColor: selectedColor,
+        members: membersList,
+      });
 
-    const newGroup: TeamGroup = {
-      id: newGroupId,
-      subject: groupSubject.trim(),
-      description: groupDescription.trim() || undefined,
-      iconEmoji: selectedEmoji,
-      iconBgColor: selectedColor,
-      createdBy: 'You',
-      createdAt: 'Today',
-      members: membersList,
-      lastMessageText: 'You created this group',
-      lastMessageTime: timeNow,
-      lastMessageSender: 'You',
-      unreadCount: 0,
-    };
+      if (res && res.success && res.group) {
+        setGroups((prev) => [res.group, ...prev]);
+        setActiveGroupTab('pending');
+        setCurrentView('list');
 
-    const initialMessages: TeamGroupMessage[] = [
-      {
-        id: `sys-${Date.now()}-1`,
-        senderId: 'system',
-        senderName: 'System',
-        text: `🔒 Messages and calls are end-to-end encrypted within ${currentUser?.companyName || 'InkPen Swift'}.`,
-        time: timeNow,
-        isSystem: true,
-      },
-      {
-        id: `sys-${Date.now()}-2`,
-        senderId: 'system',
-        senderName: 'System',
-        text: `You created group "${newGroup.subject}" with ${membersList.length} participants`,
-        time: timeNow,
-        isSystem: true,
-      },
-    ];
-
-    const updatedGroups = [newGroup, ...groups];
-    await saveGroupsToStorage(updatedGroups);
-    await AsyncStorage.setItem(`${STORAGE_MSGS_PREFIX}${newGroupId}`, JSON.stringify(initialMessages));
-
-    // Transition directly into newly created group conversation!
-    setActiveGroup(newGroup);
-    setGroupMessages(initialMessages);
-    setCurrentView('chat');
+        Alert.alert(
+          'Group Request Submitted! ⏳',
+          `Your request to create "${groupSubject.trim()}" has been sent to the Admin Panel for approval.\n\nOnce approved by the Administrator, the group will become active and all ${membersList.length} members will be able to chat.`,
+          [{ text: 'Great' }]
+        );
+      } else {
+        Alert.alert('Error', res?.error || 'Failed to submit group creation request. Please try again.');
+      }
+    } catch (err: any) {
+      Alert.alert('Submission Error', err?.message || 'Could not reach server.');
+    } finally {
+      setIsSubmittingGroup(false);
+    }
   };
 
   // Send Message in Active Group
@@ -378,72 +492,44 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
 
     const text = messageInput.trim();
     const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const clientMsgId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-    const newMsg: TeamGroupMessage = {
-      id: `msg-${Date.now()}`,
+    const localMsg: TeamGroupMessage = {
+      id: clientMsgId,
+      groupId: activeGroup.id,
       senderId: currentUserId,
       senderName: currentUserName,
       senderRole: currentUser?.designation || 'Member',
       text,
       time: timeNow,
+      createdAt: new Date().toISOString(),
     };
 
-    const updatedMsgs = [...groupMessages, newMsg];
-    setGroupMessages(updatedMsgs);
+    // Optimistically update UI immediately
+    setGroupMessages((prev) => [...prev, localMsg]);
     setMessageInput('');
+    setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 80);
 
-    // Update group list preview
-    const updatedGroups = groups.map((g) =>
-      g.id === activeGroup.id
-        ? {
-            ...g,
-            lastMessageText: text,
-            lastMessageTime: timeNow,
-            lastMessageSender: 'You',
-          }
-        : g
-    );
-    saveGroupsToStorage(updatedGroups);
-    await AsyncStorage.setItem(`${STORAGE_MSGS_PREFIX}${activeGroup.id}`, JSON.stringify(updatedMsgs));
-
-    setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 100);
-
-    // Realistic teammate auto-response if first user message in a new group
-    if (activeGroup.members.length > 1 && !updatedMsgs.some((m) => m.senderId !== currentUserId && !m.isSystem)) {
-      setTimeout(async () => {
-        const otherMember = activeGroup.members.find((m) => m.id !== currentUserId) || activeGroup.members[1];
-        const replyMsg: TeamGroupMessage = {
-          id: `msg-reply-${Date.now()}`,
-          senderId: otherMember.id,
-          senderName: otherMember.name,
-          senderRole: otherMember.role,
-          text: `Got it! Thanks for adding me to "${activeGroup.subject}". Looking forward to coordinating here 👍`,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setGroupMessages((prev) => {
-          const next = [...prev, replyMsg];
-          AsyncStorage.setItem(`${STORAGE_MSGS_PREFIX}${activeGroup.id}`, JSON.stringify(next));
-          return next;
-        });
-
-        // Update group last message
-        setGroups((prevG) =>
-          prevG.map((g) =>
-            g.id === activeGroup.id
-              ? {
-                  ...g,
-                  lastMessageText: replyMsg.text,
-                  lastMessageTime: replyMsg.time,
-                  lastMessageSender: otherMember.name,
-                }
-              : g
-          )
-        );
-      }, 1200);
+    // Send via WebSocket with the exact message ID
+    if (wsRef.current && wsRef.current.readyState === 1) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'send_message',
+          id: clientMsgId,
+          tenantId: effectiveTenantId,
+          groupId: activeGroup.id,
+          senderId: currentUserId,
+          senderName: currentUserName,
+          text,
+          time: timeNow,
+        })
+      );
+    } else {
+      console.warn('[TeamChat] WS not connected, attempting reconnect...');
+      connectWebSocket();
     }
   };
 
-  // Helper to get distinct color for participant names in group chat
   const getParticipantColor = (name: string) => {
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
@@ -453,10 +539,19 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
     return PARTICIPANT_COLORS[idx];
   };
 
-  // Filtered available employees for Step 1
+  // Filter ONLY real employees (exclude self, exclude mock demo IDs like emp-01/emp-02 if real employees exist)
   const availableEmployees = (employees || []).filter((e: any) => {
-    const isSelf = (e.id === currentUserId || e.empCode === currentUserId || e.name === currentUserName);
+    const isSelf = e.id === currentUserId || e.empCode === currentUserId || e.name === currentUserName;
     if (isSelf) return false;
+
+    // Exclude mock demo IDs if we have real employee IDs (uuid-like or specific company names)
+    const hasRealEmployees = (employees || []).some(
+      (emp: any) => emp.id && emp.id.length > 10 && !emp.id.startsWith('emp-0')
+    );
+    if (hasRealEmployees && (e.id === 'emp-01' || e.id === 'emp-02' || e.id === 'emp-03' || e.id === 'emp-04' || e.id === 'emp-05' || e.id === 'emp-06')) {
+      return false;
+    }
+
     if (!participantSearch.trim()) return true;
     const q = participantSearch.toLowerCase();
     const nameMatch = (e.name || '').toLowerCase().includes(q);
@@ -465,14 +560,17 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
     return nameMatch || roleMatch || deptMatch;
   });
 
-  // Filtered groups list for main view
-  const filteredGroups = groups.filter((g) => {
+  // Approved vs Pending Groups
+  const approvedGroups = groups.filter((g) => g.status === 'approved' || (!g.status && g.status !== 'pending_approval'));
+  const pendingGroups = groups.filter((g) => g.status === 'pending_approval');
+
+  const displayedGroups = activeGroupTab === 'approved' ? approvedGroups : pendingGroups;
+  const filteredGroups = displayedGroups.filter((g) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return g.subject.toLowerCase().includes(q) || (g.description || '').toLowerCase().includes(q);
   });
 
-  // Selected members objects for Step 1 & 2 trays
   const selectedMembersList = (employees || []).filter((e: any) =>
     selectedMemberIds.includes(e.id || e.empCode)
   );
@@ -492,7 +590,13 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
                   <Icon name="arrow-left" size={20} color="#ffffff" />
                 </TouchableOpacity>
               )}
-              <Text style={styles.waHeaderTitle}>Team Chat</Text>
+              <View>
+                <Text style={styles.waHeaderTitle}>Team Chat</Text>
+                <View style={styles.wsStatusIndicatorRow}>
+                  <View style={[styles.wsDot, { backgroundColor: isConnectedWs ? '#25D366' : '#f59e0b' }]} />
+                  <Text style={styles.wsStatusText}>{isConnectedWs ? 'Live' : 'Connecting...'}</Text>
+                </View>
+              </View>
             </View>
 
             <View style={styles.waHeaderActions}>
@@ -526,6 +630,38 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
           </View>
         </View>
 
+        {/* Status Navigation Tabs (Active Groups vs Pending Approval) */}
+        <View style={[styles.tabBarRow, { backgroundColor: theme.card, borderBottomColor: theme.cardBorder }]}>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeGroupTab === 'approved' && styles.tabBtnActive]}
+            onPress={() => setActiveGroupTab('approved')}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.tabBtnText, { color: theme.textMuted }, activeGroupTab === 'approved' && { color: '#075E54', fontWeight: '700' }]}>
+              Active Groups ({approvedGroups.length})
+            </Text>
+            {activeGroupTab === 'approved' && <View style={styles.tabIndicator} />}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tabBtn, activeGroupTab === 'pending' && styles.tabBtnActive]}
+            onPress={() => setActiveGroupTab('pending')}
+            activeOpacity={0.75}
+          >
+            <View style={styles.pendingTabLabelWrap}>
+              <Text style={[styles.tabBtnText, { color: theme.textMuted }, activeGroupTab === 'pending' && { color: '#075E54', fontWeight: '700' }]}>
+                Pending Approval
+              </Text>
+              {pendingGroups.length > 0 && (
+                <View style={styles.pendingCountBadge}>
+                  <Text style={styles.pendingCountBadgeText}>{pendingGroups.length}</Text>
+                </View>
+              )}
+            </View>
+            {activeGroupTab === 'pending' && <View style={styles.tabIndicator} />}
+          </TouchableOpacity>
+        </View>
+
         {/* Groups Scroll List */}
         <ScrollView
           style={styles.groupsScrollView}
@@ -544,7 +680,7 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
             <View style={styles.newGroupTextWrap}>
               <Text style={[styles.newGroupTitle, { color: theme.textPrimary }]}>New group</Text>
               <Text style={[styles.newGroupSub, { color: theme.textMuted }]}>
-                Create a team collaboration group
+                Create team group (requires Admin approval)
               </Text>
             </View>
             <View style={[styles.newGroupBadge, { backgroundColor: '#25D366' }]}>
@@ -552,72 +688,98 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
             </View>
           </TouchableOpacity>
 
-          <View style={styles.sectionDividerRow}>
-            <Text style={[styles.sectionDividerText, { color: theme.textMuted }]}>
-              TEAM GROUPS ({filteredGroups.length})
-            </Text>
-          </View>
-
-          {filteredGroups.length === 0 ? (
+          {isLoading ? (
+            <View style={styles.loadingWrap}>
+              <ActivityIndicator size="small" color="#075E54" />
+              <Text style={[styles.loadingText, { color: theme.textMuted }]}>Loading groups...</Text>
+            </View>
+          ) : filteredGroups.length === 0 ? (
             <View style={styles.emptyWrap}>
               <View style={[styles.emptyIconCircle, { backgroundColor: theme.primaryLight }]}>
                 <Icon name="chat" size={32} color={theme.primary} />
               </View>
-              <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>No groups found</Text>
-              <Text style={[styles.emptySub, { color: theme.textMuted }]}>
-                Tap "New group" or the green button below to create your first team collaboration channel!
+              <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>
+                {activeGroupTab === 'approved' ? 'No active groups yet' : 'No pending group requests'}
               </Text>
-              <TouchableOpacity
-                style={[styles.createFirstBtn, { backgroundColor: '#25D366' }]}
-                onPress={handleStartCreateGroup}
-                activeOpacity={0.8}
-              >
-                <Icon name="plus" size={16} color="#ffffff" />
-                <Text style={styles.createFirstBtnText}>Create Team Group</Text>
-              </TouchableOpacity>
+              <Text style={[styles.emptySub, { color: theme.textMuted }]}>
+                {activeGroupTab === 'approved'
+                  ? 'Tap "New group" to choose colleagues and submit a group creation request for Admin approval.'
+                  : 'Any groups awaiting Administrator approval will appear here with live review status.'}
+              </Text>
+              {activeGroupTab === 'approved' && (
+                <TouchableOpacity
+                  style={[styles.createFirstBtn, { backgroundColor: '#25D366' }]}
+                  onPress={handleStartCreateGroup}
+                  activeOpacity={0.8}
+                >
+                  <Icon name="plus" size={16} color="#ffffff" />
+                  <Text style={styles.createFirstBtnText}>Create Group</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
-            filteredGroups.map((group) => (
-              <TouchableOpacity
-                key={group.id}
-                style={[styles.groupItemCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
-                onPress={() => handleOpenGroup(group)}
-                activeOpacity={0.75}
-              >
-                {/* Group Avatar */}
-                <View style={[styles.groupAvatarCircle, { backgroundColor: group.iconBgColor || '#075E54' }]}>
-                  <Text style={styles.groupAvatarEmoji}>{group.iconEmoji || '💬'}</Text>
-                </View>
+            filteredGroups.map((group) => {
+              const isPending = group.status === 'pending_approval';
 
-                {/* Group Info */}
-                <View style={styles.groupItemBody}>
-                  <View style={styles.groupItemHeader}>
-                    <Text style={[styles.groupSubject, { color: theme.textPrimary }]} numberOfLines={1}>
-                      {group.subject}
-                    </Text>
-                    <Text style={[styles.groupTime, { color: theme.textMuted }]}>{group.lastMessageTime}</Text>
+              return (
+                <TouchableOpacity
+                  key={group.id}
+                  style={[
+                    styles.groupItemCard,
+                    { backgroundColor: theme.card, borderColor: theme.cardBorder },
+                    isPending && styles.groupItemCardPending,
+                  ]}
+                  onPress={() => handleOpenGroup(group)}
+                  activeOpacity={0.75}
+                >
+                  {/* Group Avatar */}
+                  <View style={[styles.groupAvatarCircle, { backgroundColor: group.iconBgColor || '#075E54' }]}>
+                    <Text style={styles.groupAvatarEmoji}>{group.iconEmoji || '💬'}</Text>
                   </View>
 
-                  <View style={styles.groupItemFooter}>
-                    <Text style={[styles.groupLastMsg, { color: theme.textMuted }]} numberOfLines={1}>
-                      <Text style={styles.groupLastSender}>{group.lastMessageSender}: </Text>
-                      {group.lastMessageText}
-                    </Text>
-                    {group.unreadCount > 0 && (
-                      <View style={styles.unreadBadge}>
-                        <Text style={styles.unreadBadgeText}>{group.unreadCount}</Text>
-                      </View>
-                    )}
-                  </View>
+                  {/* Group Info */}
+                  <View style={styles.groupItemBody}>
+                    <View style={styles.groupItemHeader}>
+                      <Text style={[styles.groupSubject, { color: theme.textPrimary }]} numberOfLines={1}>
+                        {group.subject}
+                      </Text>
+                      <Text style={[styles.groupTime, { color: theme.textMuted }]}>
+                        {group.lastMessageTime || (group.createdAt ? new Date(group.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')}
+                      </Text>
+                    </View>
 
-                  <View style={styles.groupMetaRow}>
-                    <Text style={[styles.groupMembersCount, { color: theme.primary }]}>
-                      👥 {group.members?.length || 1} members
-                    </Text>
+                    <View style={styles.groupItemFooter}>
+                      <Text style={[styles.groupLastMsg, { color: theme.textMuted }]} numberOfLines={1}>
+                        {isPending ? (
+                          <Text style={styles.pendingText}>⏳ Waiting for Admin Approval</Text>
+                        ) : (
+                          <>
+                            <Text style={styles.groupLastSender}>{group.lastMessageSender}: </Text>
+                            {group.lastMessageText || 'No messages yet'}
+                          </>
+                        )}
+                      </Text>
+                      {group.unreadCount > 0 && !isPending && (
+                        <View style={styles.unreadBadge}>
+                          <Text style={styles.unreadBadgeText}>{group.unreadCount}</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.groupMetaRow}>
+                      <Text style={[styles.groupMembersCount, { color: theme.primary }]}>
+                        👥 {group.members?.length || 0} members
+                      </Text>
+                      {isPending && (
+                        <View style={styles.pendingBadgePill}>
+                          <Text style={styles.pendingBadgePillText}>Pending Admin Approval</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              </TouchableOpacity>
-            ))
+                </TouchableOpacity>
+              );
+            })
           )}
         </ScrollView>
 
@@ -635,6 +797,7 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
 
   // ==========================================
   // VIEW 2: WHATSAPP "NEW GROUP" - STEP 1 (ADD PARTICIPANTS)
+  // SOURCED ONLY FROM REAL EMPLOYEES
   // ==========================================
   if (currentView === 'create_step1') {
     return (
@@ -666,7 +829,7 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
               <Icon name="search" size={16} color="rgba(255,255,255,0.7)" />
               <TextInput
                 style={styles.waSearchInput}
-                placeholder="Search name, role, department..."
+                placeholder="Search colleagues by name, role, dept..."
                 placeholderTextColor="rgba(255,255,255,0.6)"
                 value={participantSearch}
                 onChangeText={setParticipantSearch}
@@ -680,7 +843,7 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
           </View>
         </View>
 
-        {/* Selected Participants Horizontal Chips Tray (WhatsApp Style) */}
+        {/* Selected Participants Horizontal Chips Tray */}
         {selectedMemberIds.length > 0 && (
           <View style={[styles.selectedChipsTray, { backgroundColor: theme.card, borderBottomColor: theme.cardBorder }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.selectedChipsContent}>
@@ -711,62 +874,70 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
           </View>
         )}
 
-        {/* Colleagues Selection List */}
+        {/* Real Colleagues Selection List */}
         <ScrollView
           style={styles.colleaguesScrollView}
           contentContainerStyle={[styles.colleaguesContent, { paddingBottom: currentBottomMargin + 80 }]}
           keyboardShouldPersistTaps="handled"
         >
           <Text style={[styles.contactsHeading, { color: theme.textMuted }]}>
-            FREQUENT CONTACTS ({availableEmployees.length})
+            COMPANY COLLEAGUES ({availableEmployees.length})
           </Text>
 
-          {availableEmployees.map((emp: any) => {
-            const empId = emp.id || emp.empCode;
-            const isSelected = selectedMemberIds.includes(empId);
+          {availableEmployees.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Text style={[styles.emptySub, { color: theme.textMuted }]}>
+                No colleagues matching "{participantSearch}"
+              </Text>
+            </View>
+          ) : (
+            availableEmployees.map((emp: any) => {
+              const empId = emp.id || emp.empCode;
+              const isSelected = selectedMemberIds.includes(empId);
 
-            return (
-              <TouchableOpacity
-                key={empId}
-                style={[
-                  styles.contactRow,
-                  { backgroundColor: theme.card, borderColor: theme.cardBorder },
-                  isSelected && { backgroundColor: `${theme.primary}10` },
-                ]}
-                onPress={() => handleToggleMember(empId)}
-                activeOpacity={0.75}
-              >
-                {/* Avatar */}
-                <View style={styles.contactAvatarWrap}>
-                  {emp.photoDataUrl ? (
-                    <Image source={{ uri: emp.photoDataUrl }} style={styles.contactAvatarImg} />
-                  ) : (
-                    <View style={[styles.contactAvatarFallback, { backgroundColor: getParticipantColor(emp.name) }]}>
-                      <Text style={styles.contactAvatarInitial}>{emp.name?.charAt(0) || 'U'}</Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Info */}
-                <View style={styles.contactInfo}>
-                  <Text style={[styles.contactName, { color: theme.textPrimary }]}>{emp.name}</Text>
-                  <Text style={[styles.contactRole, { color: theme.textMuted }]} numberOfLines={1}>
-                    {emp.designation || emp.roleName || 'Employee'} • {emp.department || 'Operations'}
-                  </Text>
-                </View>
-
-                {/* WhatsApp Green Checkbox */}
-                <View
+              return (
+                <TouchableOpacity
+                  key={empId}
                   style={[
-                    styles.waCheckbox,
-                    isSelected ? styles.waCheckboxChecked : [styles.waCheckboxUnchecked, { borderColor: theme.cardBorder }],
+                    styles.contactRow,
+                    { backgroundColor: theme.card, borderColor: theme.cardBorder },
+                    isSelected && { backgroundColor: `${theme.primary}10` },
                   ]}
+                  onPress={() => handleToggleMember(empId)}
+                  activeOpacity={0.75}
                 >
-                  {isSelected && <Icon name="check" size={14} color="#ffffff" />}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+                  {/* Avatar */}
+                  <View style={styles.contactAvatarWrap}>
+                    {emp.photoDataUrl ? (
+                      <Image source={{ uri: emp.photoDataUrl }} style={styles.contactAvatarImg} />
+                    ) : (
+                      <View style={[styles.contactAvatarFallback, { backgroundColor: getParticipantColor(emp.name) }]}>
+                        <Text style={styles.contactAvatarInitial}>{emp.name?.charAt(0) || 'U'}</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Info */}
+                  <View style={styles.contactInfo}>
+                    <Text style={[styles.contactName, { color: theme.textPrimary }]}>{emp.name}</Text>
+                    <Text style={[styles.contactRole, { color: theme.textMuted }]} numberOfLines={1}>
+                      {emp.designation || emp.roleName || 'Employee'} • {emp.department || 'Operations'}
+                    </Text>
+                  </View>
+
+                  {/* WhatsApp Green Checkbox */}
+                  <View
+                    style={[
+                      styles.waCheckbox,
+                      isSelected ? styles.waCheckboxChecked : [styles.waCheckboxUnchecked, { borderColor: theme.cardBorder }],
+                    ]}
+                  >
+                    {isSelected && <Icon name="check" size={14} color="#ffffff" />}
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
         </ScrollView>
 
         {/* WhatsApp Floating Next Arrow Button */}
@@ -802,7 +973,7 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
 
             <View style={styles.stepHeaderTitles}>
               <Text style={styles.waHeaderTitle}>New group</Text>
-              <Text style={styles.stepHeaderSubtitle}>Provide group subject</Text>
+              <Text style={styles.stepHeaderSubtitle}>Provide subject for Admin approval</Text>
             </View>
           </View>
         </View>
@@ -812,7 +983,18 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
           contentContainerStyle={[styles.step2Content, { paddingBottom: currentBottomMargin + 90 }]}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Group Icon & Subject Input Card (Classic WhatsApp Layout) */}
+          {/* Approval Notice Banner */}
+          <View style={styles.approvalNoticeCard}>
+            <Text style={styles.approvalNoticeIcon}>🛡️</Text>
+            <View style={styles.approvalNoticeTextWrap}>
+              <Text style={styles.approvalNoticeTitle}>Admin Approval Required</Text>
+              <Text style={styles.approvalNoticeSub}>
+                To maintain workplace communication standards, new groups must be approved by the Administrator before activation.
+              </Text>
+            </View>
+          </View>
+
+          {/* Group Icon & Subject Input Card */}
           <View style={[styles.subjectCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
             <View style={styles.subjectRow}>
               {/* Group Avatar Chooser */}
@@ -888,7 +1070,7 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
             <View style={styles.descInputWrap}>
               <TextInput
                 style={[styles.descInput, { color: theme.textPrimary, borderColor: theme.cardBorder, backgroundColor: theme.inputBg }]}
-                placeholder="Group description or purpose (optional)..."
+                placeholder="Group purpose / description for admin review..."
                 placeholderTextColor={theme.textMuted}
                 value={groupDescription}
                 onChangeText={setGroupDescription}
@@ -896,29 +1078,6 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
                 numberOfLines={2}
                 maxLength={200}
               />
-            </View>
-          </View>
-
-          {/* Disappearing messages / Group permissions setting (WhatsApp touch) */}
-          <View style={[styles.settingsCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-            <View style={styles.settingsRow}>
-              <View style={styles.settingsIconCircle}>
-                <Icon name="clock" size={18} color="#25D366" />
-              </View>
-              <View style={styles.settingsTextWrap}>
-                <Text style={[styles.settingsTitle, { color: theme.textPrimary }]}>Disappearing messages</Text>
-                <Text style={[styles.settingsSub, { color: theme.textMuted }]}>Off • Messages stay in history</Text>
-              </View>
-            </View>
-
-            <View style={styles.settingsRow}>
-              <View style={styles.settingsIconCircle}>
-                <Icon name="shield" size={18} color="#25D366" />
-              </View>
-              <View style={styles.settingsTextWrap}>
-                <Text style={[styles.settingsTitle, { color: theme.textPrimary }]}>Group permissions</Text>
-                <Text style={[styles.settingsSub, { color: theme.textMuted }]}>All members can send messages</Text>
-              </View>
             </View>
           </View>
 
@@ -937,14 +1096,14 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
               </View>
               <View style={styles.previewMemberInfo}>
                 <Text style={[styles.previewMemberName, { color: theme.textPrimary }]}>{currentUserName} (You)</Text>
-                <Text style={[styles.previewMemberRole, { color: theme.textMuted }]}>Group Admin</Text>
+                <Text style={[styles.previewMemberRole, { color: theme.textMuted }]}>Creator & Admin</Text>
               </View>
               <View style={styles.adminBadge}>
-                <Text style={styles.adminBadgeText}>Admin</Text>
+                <Text style={styles.adminBadgeText}>Creator</Text>
               </View>
             </View>
 
-            {/* Selected Colleague Members */}
+            {/* Selected Real Colleagues */}
             {selectedMembersList.map((emp: any) => (
               <View key={emp.id || emp.empCode} style={styles.previewMemberRow}>
                 {emp.photoDataUrl ? (
@@ -957,7 +1116,7 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
                 <View style={styles.previewMemberInfo}>
                   <Text style={[styles.previewMemberName, { color: theme.textPrimary }]}>{emp.name}</Text>
                   <Text style={[styles.previewMemberRole, { color: theme.textMuted }]} numberOfLines={1}>
-                    {emp.designation || emp.roleName || 'Member'} • {emp.department || 'Operations'}
+                    {emp.designation || emp.roleName || 'Member'} • {emp.department || 'Team'}
                   </Text>
                 </View>
               </View>
@@ -969,20 +1128,25 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
         <TouchableOpacity
           style={[styles.whatsappFab, { bottom: currentBottomMargin + 10 }]}
           onPress={handleFinalizeCreateGroup}
+          disabled={isSubmittingGroup}
           activeOpacity={0.85}
         >
-          <Icon name="check" size={24} color="#ffffff" />
+          {isSubmittingGroup ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <Icon name="check" size={24} color="#ffffff" />
+          )}
         </TouchableOpacity>
       </View>
     );
   }
 
   // ==========================================
-  // VIEW 4: WHATSAPP GROUP CONVERSATION
+  // VIEW 4: WHATSAPP GROUP CONVERSATION (REAL-TIME WEBSOCKET)
   // ==========================================
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: '#EFEAE2' }]} // Classic WhatsApp Chat Wallpaper tone
+      style={[styles.container, { backgroundColor: '#EFEAE2' }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
@@ -1153,7 +1317,7 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
               ) : null}
 
               <Text style={[styles.modalSectionHeading, { color: theme.textMuted }]}>
-                PARTICIPANTS
+                PARTICIPANTS ({activeGroup?.members?.length || 0})
               </Text>
 
               {activeGroup?.members?.map((m) => (
@@ -1177,30 +1341,11 @@ export function TeamChatScreen({ theme, onBack }: TeamChatScreenProps) {
                 </View>
               ))}
 
-              {/* Action Buttons */}
               <TouchableOpacity
-                style={[styles.leaveGroupBtn, { borderColor: '#ef4444' }]}
-                onPress={() => {
-                  Alert.alert(
-                    'Delete Group',
-                    `Are you sure you want to delete and leave "${activeGroup?.subject}"?`,
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: () => {
-                          const remaining = groups.filter((g) => g.id !== activeGroup?.id);
-                          saveGroupsToStorage(remaining);
-                          setShowGroupInfo(false);
-                          setCurrentView('list');
-                        },
-                      },
-                    ]
-                  );
-                }}
+                style={[styles.closeModalBtn, { backgroundColor: theme.primary }]}
+                onPress={() => setShowGroupInfo(false)}
               >
-                <Text style={styles.leaveGroupText}>Delete & Exit Group</Text>
+                <Text style={styles.closeModalBtnText}>Close</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -1245,6 +1390,22 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     letterSpacing: 0.3,
   },
+  wsStatusIndicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 1,
+  },
+  wsDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  wsStatusText: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontWeight: '600',
+  },
   waHeaderActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1287,6 +1448,51 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
 
+  // Tab Bar (Active vs Pending)
+  tabBarRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  tabBtnActive: {
+    backgroundColor: 'rgba(7, 94, 84, 0.04)',
+  },
+  tabBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tabIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: '20%',
+    right: '20%',
+    height: 3,
+    backgroundColor: '#075E54',
+    borderRadius: 1.5,
+  },
+  pendingTabLabelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pendingCountBadge: {
+    backgroundColor: '#f59e0b',
+    borderRadius: 9,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  pendingCountBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+
   // Groups Scroll View
   groupsScrollView: {
     flex: 1,
@@ -1294,6 +1500,15 @@ const styles = StyleSheet.create({
   groupsContent: {
     padding: 14,
     gap: 10,
+  },
+  loadingWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 30,
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 13,
   },
 
   // Top New Group Banner
@@ -1333,17 +1548,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  sectionDividerRow: {
-    marginTop: 6,
-    marginBottom: 2,
-    paddingHorizontal: 4,
-  },
-  sectionDividerText: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-
   // Group Item Card
   groupItemCard: {
     flexDirection: 'row',
@@ -1353,6 +1557,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 12,
     ...SHADOWS.sm,
+  },
+  groupItemCardPending: {
+    borderStyle: 'dashed',
+    borderColor: '#f59e0b',
   },
   groupAvatarCircle: {
     width: 50,
@@ -1395,6 +1603,11 @@ const styles = StyleSheet.create({
   groupLastSender: {
     fontWeight: '600',
   },
+  pendingText: {
+    color: '#d97706',
+    fontWeight: '600',
+    fontSize: 12,
+  },
   unreadBadge: {
     backgroundColor: '#25D366',
     borderRadius: 10,
@@ -1410,11 +1623,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   groupMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 4,
   },
   groupMembersCount: {
     fontSize: 11,
     fontWeight: '600',
+  },
+  pendingBadgePill: {
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  pendingBadgePillText: {
+    color: '#b45309',
+    fontSize: 10,
+    fontWeight: '700',
   },
 
   // Empty State
@@ -1605,6 +1832,33 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 14,
   },
+  approvalNoticeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    borderRadius: 14,
+    padding: 12,
+    gap: 10,
+  },
+  approvalNoticeIcon: {
+    fontSize: 22,
+  },
+  approvalNoticeTextWrap: {
+    flex: 1,
+  },
+  approvalNoticeTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#065f46',
+  },
+  approvalNoticeSub: {
+    fontSize: 11.5,
+    color: '#047857',
+    marginTop: 2,
+    lineHeight: 16,
+  },
   subjectCard: {
     padding: 16,
     borderRadius: 16,
@@ -1707,39 +1961,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     textAlignVertical: 'top',
-  },
-
-  // Settings Card
-  settingsCard: {
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 14,
-    ...SHADOWS.sm,
-  },
-  settingsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  settingsIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#25D36615',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  settingsTextWrap: {
-    flex: 1,
-  },
-  settingsTitle: {
-    fontSize: 13.5,
-    fontWeight: '600',
-  },
-  settingsSub: {
-    fontSize: 11.5,
-    marginTop: 2,
   },
 
   // Preview List
@@ -1891,11 +2112,11 @@ const styles = StyleSheet.create({
     ...SHADOWS.sm,
   },
   waBubbleMe: {
-    backgroundColor: '#E7FFDB', // WhatsApp light-green outgoing bubble
+    backgroundColor: '#E7FFDB',
     borderTopRightRadius: 2,
   },
   waBubbleOther: {
-    backgroundColor: '#FFFFFF', // WhatsApp white incoming bubble
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 2,
   },
   waSenderName: {
@@ -2063,16 +2284,15 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     marginTop: 2,
   },
-  leaveGroupBtn: {
-    borderWidth: 1.5,
+  closeModalBtn: {
     borderRadius: 14,
     paddingVertical: 12,
     alignItems: 'center',
-    marginTop: 24,
-    marginBottom: 30,
+    marginTop: 20,
+    marginBottom: 20,
   },
-  leaveGroupText: {
-    color: '#ef4444',
+  closeModalBtnText: {
+    color: '#ffffff',
     fontSize: 14,
     fontWeight: '700',
   },

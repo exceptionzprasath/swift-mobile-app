@@ -83,8 +83,8 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
   const pendingDocApprovals = (docRequests || [])
     .filter((d) => d.status === 'pending' && canRoleApproveDocInApp(userRole, d.letterKey))
     .sort((a, b) => {
-      const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-      const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : ((b as any).createdAt ? new Date((b as any).createdAt).getTime() : 0);
+      const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : ((a as any).createdAt ? new Date((a as any).createdAt).getTime() : 0);
       return timeB - timeA;
     });
 
@@ -92,8 +92,8 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
   const pendingLeaveApprovals = (leaves || [])
     .filter((l) => l.status === 'Pending' && canApproveLeaves && l.employeeId !== currentUser?.id)
     .sort((a, b) => {
-      const timeB = b.appliedOn ? new Date(b.appliedOn).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-      const timeA = a.appliedOn ? new Date(a.appliedOn).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      const timeB = (b as any).appliedOn ? new Date((b as any).appliedOn).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+      const timeA = (a as any).appliedOn ? new Date((a as any).appliedOn).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
       return timeB - timeA;
     });
 
@@ -109,8 +109,8 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
         !d.employeeAccepted
     )
     .sort((a, b) => {
-      const timeB = b.approvedAt ? new Date(b.approvedAt).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-      const timeA = a.approvedAt ? new Date(a.approvedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      const timeB = (b as any).approvedAt ? new Date((b as any).approvedAt).getTime() : ((b as any).createdAt ? new Date((b as any).createdAt).getTime() : 0);
+      const timeA = (a as any).approvedAt ? new Date((a as any).approvedAt).getTime() : ((a as any).createdAt ? new Date((a as any).createdAt).getTime() : 0);
       return timeB - timeA;
     });
 
@@ -211,7 +211,7 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
   );
 
   userLeaves.slice(0, 3).forEach((l) => {
-    const leaveTime = l.actedAt || l.appliedOn || l.createdAt;
+    const leaveTime = l.actedAt || (l as any).appliedOn || l.createdAt;
     const leaveTimestamp = leaveTime ? new Date(leaveTime).getTime() : Date.now() - 3600000;
     if (l.status === 'Approved') {
       realTimeNotices.push({

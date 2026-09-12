@@ -164,3 +164,84 @@ export function getDocumentDownloadUrl(tenantId: string, docId: string, employee
   return `${BACKEND_URL}/api/documents/download-pdf?${query.toString()}`;
 }
 
+export function getWebSocketUrl(): string {
+  let wsUrl = BACKEND_URL.replace(/^http/, 'ws');
+  return `${wsUrl}/ws/team-chat`;
+}
+
+export async function fetchTeamGroups(tenantId: string, employeeId: string) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/groups?tenantId=${tenantId}&employeeId=${employeeId}`, {
+      headers: FETCH_HEADERS,
+    });
+    if (res.ok) {
+      const text = await res.text();
+      try {
+        const data = JSON.parse(text);
+        return data.groups || [];
+      } catch (e) {
+        console.warn('[API] fetchTeamGroups JSON parse error:', e);
+      }
+    }
+  } catch (err) {
+    console.warn('[API] fetchTeamGroups error:', err);
+  }
+  return [];
+}
+
+export async function fetchGroupMessages(tenantId: string, groupId: string) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/messages?tenantId=${tenantId}&groupId=${groupId}`, {
+      headers: FETCH_HEADERS,
+    });
+    if (res.ok) {
+      const text = await res.text();
+      try {
+        const data = JSON.parse(text);
+        return data.messages || [];
+      } catch (e) {
+        console.warn('[API] fetchGroupMessages JSON parse error:', e);
+      }
+    }
+  } catch (err) {
+    console.warn('[API] fetchGroupMessages error:', err);
+  }
+  return [];
+}
+
+export async function requestCreateGroup(payload: {
+  tenantId: string;
+  creatorId: string;
+  creatorName: string;
+  subject: string;
+  description?: string;
+  iconEmoji?: string;
+  iconBgColor?: string;
+  members: any[];
+}) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/groups/request`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        error: res.ok
+          ? 'Invalid server response'
+          : `Backend returned HTTP ${res.status}: ${text.slice(0, 100)}`,
+      };
+    }
+    return data;
+  } catch (err: any) {
+    console.warn('[API] requestCreateGroup error:', err);
+    return { success: false, error: err?.message || 'Network connection failed' };
+  }
+}
+
+

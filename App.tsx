@@ -213,8 +213,8 @@ function MainAppContent() {
       {/* Main Body */}
       <View style={[styles.body, { backgroundColor: theme.bg }]}>{renderActiveScreen()}</View>
 
-      {/* Bottom Navigation */}
-      {(!isKeyboardVisible || (activeTab !== 'chat' && activeTab !== 'team-chat')) && (
+      {/* Bottom Navigation: Hide completely when entered into chat screen or team-chat, or when keyboard is open */}
+      {!isKeyboardVisible && activeTab !== 'team-chat' && activeTab !== 'chat' && (
         <TabBar
           theme={theme}
           selectedPaletteId={selectedPaletteId}

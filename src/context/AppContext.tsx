@@ -689,11 +689,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (data && data.employees && Array.isArray(data.employees) && data.employees.length > 0) {
       combinedEmployees = [...data.employees];
-      DEFAULT_COMPANY_EMPLOYEES.forEach((def) => {
-        if (!combinedEmployees.some((e: Employee) => e.id === def.id || e.empCode === def.empCode)) {
-          combinedEmployees.push(def);
-        }
-      });
       setEmployees(combinedEmployees);
     } else {
       setEmployees(DEFAULT_COMPANY_EMPLOYEES);
