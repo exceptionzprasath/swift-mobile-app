@@ -600,6 +600,19 @@ export function SideDrawer({
                     style={styles.listRowItem}
                     onPress={() => {
                       onClose();
+                      onNavigate('team-chat');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="chat" size={20} color="#ffffff" />
+                    <Text style={styles.listRowText}>Team Chat</Text>
+                    <Icon name="chevron-right" size={16} color="rgba(255, 255, 255, 0.4)" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.listRowItem}
+                    onPress={() => {
+                      onClose();
                       onNavigate('notifications');
                     }}
                     activeOpacity={0.7}

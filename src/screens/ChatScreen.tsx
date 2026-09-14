@@ -32,7 +32,6 @@ interface ChatMessage {
 
 export function ChatScreen({ theme }: ChatScreenProps) {
   const { currentUser, leaves, holidays, companyConfig, userRole } = useAppContext();
-  const [activeChannel, setActiveChannel] = useState<'ai' | 'team'>('ai');
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -98,15 +97,6 @@ export function ChatScreen({ theme }: ChatScreenProps) {
     },
   ]);
 
-  const [teamMessages, setTeamMessages] = useState<ChatMessage[]>([
-    {
-      id: 'team-1',
-      sender: 'bot',
-      text: `Welcome to the Team Engineering channel! Post updates or coordinate with your teammates here.`,
-      time: '09:00 AM',
-    },
-  ]);
-
   // Load chat history from AsyncStorage on mount
   useEffect(() => {
     async function loadChatHistory() {
@@ -140,7 +130,7 @@ export function ChatScreen({ theme }: ChatScreenProps) {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
     return () => clearTimeout(timer);
-  }, [aiMessages, teamMessages, isLoading]);
+  }, [aiMessages, isLoading]);
 
   // Auto scroll and track keyboard visibility & exact height
   useEffect(() => {
@@ -175,11 +165,6 @@ export function ChatScreen({ theme }: ChatScreenProps) {
     const userMsg: ChatMessage = { id: `u-${Date.now()}`, sender: 'user', text: query, time: timeStr };
 
     setInputText('');
-
-    if (activeChannel === 'team') {
-      setTeamMessages((prev) => [...prev, userMsg]);
-      return;
-    }
 
     // AI Channel
     const updatedMessages = [...aiMessages, userMsg];
@@ -256,8 +241,6 @@ export function ChatScreen({ theme }: ChatScreenProps) {
     }
   };
 
-  const currentMessages = activeChannel === 'ai' ? aiMessages : teamMessages;
-
   const quickPrompts = [
     'How many leaves do I have left?',
     'What is my CL and SL leave balance?',
@@ -283,48 +266,28 @@ export function ChatScreen({ theme }: ChatScreenProps) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      {/* Top Channel Switcher & AI Status Header */}
+      {/* SWIFT AI Dedicated Header */}
       <View style={[styles.headerCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
-        <View style={[styles.channelRow, { backgroundColor: theme.inputBg }]}>
-          <TouchableOpacity
-            style={[styles.channelTab, activeChannel === 'ai' && { backgroundColor: theme.primary }]}
-            onPress={() => setActiveChannel('ai')}
-          >
-            <View style={styles.tabContentRow}>
-              <Icon name="bot" size={15} color={activeChannel === 'ai' ? '#ffffff' : theme.textMuted} />
-              <Text style={[styles.channelText, { color: theme.textMuted }, activeChannel === 'ai' && { color: '#ffffff' }]}>
-                SWIFT AI
-              </Text>
+        <View style={styles.aiStatusRow}>
+          <View style={styles.aiHeaderInfo}>
+            <View style={[styles.aiHeaderIconWrap, { backgroundColor: theme.primaryLight }]}>
+              <Icon name="bot" size={18} color={theme.primary} />
             </View>
-          </TouchableOpacity>
+            <View>
+              <Text style={[styles.aiHeaderTitle, { color: theme.textPrimary }]}>SWIFT AI Assistant</Text>
+              <View style={styles.aiBadge}>
+                <View style={[styles.statusDot, { backgroundColor: '#10b981' }]} />
+                <Text style={[styles.aiBadgeText, { color: theme.textMuted }]}>
+                  Ink AI • Live HR Context Connected
+                </Text>
+              </View>
+            </View>
+          </View>
 
-          <TouchableOpacity
-            style={[styles.channelTab, activeChannel === 'team' && { backgroundColor: theme.primary }]}
-            onPress={() => setActiveChannel('team')}
-          >
-            <View style={styles.tabContentRow}>
-              <Icon name="chat" size={15} color={activeChannel === 'team' ? '#ffffff' : theme.textMuted} />
-              <Text style={[styles.channelText, { color: theme.textMuted }, activeChannel === 'team' && { color: '#ffffff' }]}>
-                Team Chat
-              </Text>
-            </View>
+          <TouchableOpacity style={styles.clearBtn} onPress={handleClearChat} activeOpacity={0.7}>
+            <Text style={[styles.clearBtnText, { color: theme.primary }]}>Reset</Text>
           </TouchableOpacity>
         </View>
-
-        {activeChannel === 'ai' && (
-          <View style={styles.aiStatusRow}>
-            <View style={styles.aiBadge}>
-              <View style={[styles.statusDot, { backgroundColor: '#10b981' }]} />
-              <Text style={[styles.aiBadgeText, { color: theme.textMuted }]}>
-                Ink AI • Live HR Context Connected
-              </Text>
-            </View>
-
-            <TouchableOpacity style={styles.clearBtn} onPress={handleClearChat}>
-              <Text style={[styles.clearBtnText, { color: theme.primary }]}>Reset</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
 
       {/* Messages Scroll Area */}
@@ -335,7 +298,7 @@ export function ChatScreen({ theme }: ChatScreenProps) {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        {currentMessages.map((m) => (
+        {aiMessages.map((m) => (
           <View
             key={m.id}
             style={[styles.msgWrapper, m.sender === 'user' ? styles.userWrapper : styles.botWrapper]}
@@ -402,26 +365,24 @@ export function ChatScreen({ theme }: ChatScreenProps) {
       </ScrollView>
 
       {/* Quick Prompts Carousel */}
-      {activeChannel === 'ai' && (
-        <View style={styles.promptContainer}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.promptContent}
-          >
-            {quickPrompts.map((p, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={[styles.promptChip, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
-                onPress={() => handleQuickPrompt(p)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.promptText, { color: theme.primary }]}>✨ {p}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+      <View style={styles.promptContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.promptContent}
+        >
+          {quickPrompts.map((p, idx) => (
+            <TouchableOpacity
+              key={idx}
+              style={[styles.promptChip, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
+              onPress={() => handleQuickPrompt(p)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.promptText, { color: theme.primary }]}>✨ {p}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       {/* Input Bar */}
       <View
@@ -436,7 +397,7 @@ export function ChatScreen({ theme }: ChatScreenProps) {
       >
         <TextInput
           style={[styles.textInput, { color: theme.textPrimary }]}
-          placeholder={activeChannel === 'ai' ? 'Ask SWIFT AI about leaves, policy, payroll...' : 'Type a message to the team...'}
+          placeholder="Ask SWIFT AI about leaves, policy, payroll..."
           placeholderTextColor={theme.textMuted}
           value={inputText}
           onChangeText={setInputText}
@@ -473,38 +434,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerCard: {
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 8,
     borderBottomWidth: 1,
-  },
-  channelRow: {
-    flexDirection: 'row',
-    borderRadius: 12,
-    padding: 3,
-  },
-  channelTab: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 9,
-  },
-  tabContentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  channelText: {
-    fontSize: 12,
-    fontWeight: '700',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
   },
   aiStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
-    paddingHorizontal: 4,
+  },
+  aiHeaderInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  aiHeaderIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
   },
   aiBadge: {
     flexDirection: 'row',
