@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -10,11 +11,13 @@ import {
   Linking,
   RefreshControl,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
 import { useAppContext } from '../context/AppContext';
-import { BACKEND_URL } from '../services/api';
+import { BACKEND_URL, uploadFile } from '../services/api';
+import { generatePayslipHtml, utf8ToBase64 } from '../services/pdfService';
 
 interface PayrollScreenProps {
   theme: ThemeColors;
@@ -83,14 +86,15 @@ export function numberToWordsIndian(num: number): string {
 
 export function formatInr(amount: number): string {
   const rounded = Math.round(amount || 0);
-  return `₹${rounded.toLocaleString('en-IN')}`;
+  return (rounded || 0).toLocaleString('en-IN');
 }
 
 export function PayrollScreen({ theme }: PayrollScreenProps) {
-  const { currentUser, attendance, payrolls, companyConfig, requests, refreshData } = useAppContext();
+  const { currentUser, attendance, payrolls, companyConfig, requests, holidays, docLibrary, refreshData } = useAppContext();
   const [refreshing, setRefreshing] = useState(false);
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [breakdownTab, setBreakdownTab] = useState<'earnings' | 'deductions'>('earnings');
   const [segmentedWidth, setSegmentedWidth] = useState(0);
   const tabSlideAnim = useRef(new Animated.Value(0)).current;
@@ -279,17 +283,274 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
     };
   }, [processedPayroll, currentUser, selectedMonthObj, attendance, companyConfig, requests]);
 
+  // Helper to normalize relative or absolute media URLs
+  const normalizeMediaUrl = (url: string | undefined | null): string | null => {
+    if (!url || typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return null;
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('/')) {
+      return `${BACKEND_URL}${trimmed}`;
+    }
+    return `${BACKEND_URL}/${trimmed}`;
+  };
+
+  // Dynamic Logo / Letterhead / Company Palette matching Swift Admin PayslipTemplateView
+  const docAssets = companyConfig?.docAssets || companyConfig?.documentAssets || companyConfig?.branding || {};
+
+  // Resolve letterhead ONLY from companyConfig / docAssets (NOT from general docLibrary)
+  const rawLetterhead =
+    docAssets?.letterheadDataUrl ||
+    docAssets?.letterheadUrl ||
+    companyConfig?.letterheadDataUrl ||
+    companyConfig?.letterheadUrl ||
+    companyConfig?.letterheadHeader ||
+    companyConfig?.letterhead ||
+    companyConfig?.headerImage ||
+    companyConfig?.headerUrl ||
+    companyConfig?.companyLetterhead;
+
+  const letterheadUrl = normalizeMediaUrl(rawLetterhead);
+
+  const rawFooter =
+    docAssets?.footerDataUrl ||
+    docAssets?.footerUrl ||
+    companyConfig?.footerDataUrl ||
+    companyConfig?.footerUrl ||
+    companyConfig?.letterheadFooter ||
+    companyConfig?.footer ||
+    companyConfig?.footerImage;
+
+  const footerUrl = normalizeMediaUrl(rawFooter);
+
+  // Extract dynamic colors matching uploaded company branding or high-end default Slate/Navy
+  const palette = useMemo(() => {
+    if (companyConfig?.palette?.primaryHex) {
+      return {
+        primaryHex: companyConfig.palette.primaryHex,
+        primaryDarkHex: companyConfig.palette.primaryDarkHex || companyConfig.palette.primaryHex,
+        accentHex: companyConfig.palette.accentHex || '#38bdf8',
+      };
+    }
+    const customPrimary =
+      companyConfig?.payslipThemeColor ||
+      companyConfig?.themeColor ||
+      companyConfig?.primaryColor ||
+      companyConfig?.brandColor;
+
+    if (customPrimary && typeof customPrimary === 'string' && customPrimary.startsWith('#')) {
+      return {
+        primaryHex: customPrimary,
+        primaryDarkHex: companyConfig?.primaryDarkHex || customPrimary,
+        accentHex: companyConfig?.accentHex || companyConfig?.accentColor || '#38bdf8',
+      };
+    }
+
+    // Default elegant corporate Slate/Navy palette
+    return {
+      primaryHex: '#0f172a',
+      primaryDarkHex: '#020617',
+      accentHex: '#0284c7',
+    };
+  }, [companyConfig]);
+
+  // Month date calculation
+  const [yearStr, monthStr] = selectedMonthObj.key.split('-');
+  const yearNum = parseInt(yearStr, 10);
+  const monthNum = parseInt(monthStr, 10);
+  const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+  const formattedMonthDateStr = `01-${monthStr.padStart(2, '0')}-${yearNum}`;
+  const formattedMonthNameStr = selectedMonthObj.label.toUpperCase();
+
+  const workingDaysCount = companyConfig?.workingDaysPerMonth || 26;
+  const userMonthAttendance = useMemo(() => {
+    return (attendance || []).filter(
+      (a) =>
+        (a.employeeId === currentUser?.id || a.employeeName === currentUser?.name) &&
+        a.date &&
+        a.date.startsWith(selectedMonthObj.key)
+    );
+  }, [attendance, currentUser, selectedMonthObj]);
+
+  const presentCount = userMonthAttendance.filter((a) => a.status === 'present').length;
+  const halfDaysCount = userMonthAttendance.filter((a) => a.status === 'halfday' || (a.status as string) === 'half-day').length;
+  const leaveCount = userMonthAttendance.filter((a) => (a.status as string) === 'leave').length;
+  const presentDaysDisplay = presentCount + halfDaysCount * 0.5;
+
+  const sundayWorkCount = userMonthAttendance.filter((a) => {
+    const d = new Date(a.date);
+    return d.getDay() === 0 && (a.status === 'present' || (Number(a.otHours) || 0) > 0);
+  }).length;
+
+  const holidaysCount = (holidays || []).filter((h: any) => h.date && h.date.startsWith(selectedMonthObj.key)).length;
+  const weekOffCount = Math.max(0, daysInMonth - workingDaysCount - holidaysCount);
+
+  const fixedGrossSalary = currentUser?.fixedSalary || currentUser?.basic || 30000;
+  const paySlabPerDay = Math.round(fixedGrossSalary / (workingDaysCount || 26));
+
+  const pendingAdvanceTotal = useMemo(() => {
+    return (requests || [])
+      .filter((r) => {
+        if (r.category !== 'loan' && r.category !== 'advance_loan') return false;
+        const matchesEmp =
+          r.employeeId === currentUser?.id ||
+          (currentUser?.empCode && r.empCode === currentUser.empCode) ||
+          r.employeeName === currentUser?.name;
+        return matchesEmp && (r.status === 'Approved' || r.status === 'Disbursed');
+      })
+      .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  }, [requests, currentUser]);
+
+  const itemizedEarnings = useMemo(() => {
+    const list = payrollComputation.earningsList || [];
+    const items: { name: string; amount: number }[] = [];
+
+    if (list.length > 0) {
+      let combinedBasicDaAmt = 0;
+      let foundBasicOrDa = false;
+
+      // Pass 1: Basic + DA
+      list.forEach((el: any) => {
+        const idLower = (el.id || '').toLowerCase();
+        const nameLower = (el.name || '').toLowerCase();
+        if (idLower === 'basic' || idLower === 'da' || nameLower.includes('basic') || nameLower.includes('dearness')) {
+          combinedBasicDaAmt += el.amount || 0;
+          foundBasicOrDa = true;
+        }
+      });
+
+      if (foundBasicOrDa || combinedBasicDaAmt > 0) {
+        items.push({ name: 'BASIC + DA', amount: combinedBasicDaAmt });
+      }
+
+      // Pass 2: Other heads
+      list.forEach((el: any) => {
+        const idLower = (el.id || '').toLowerCase();
+        const nameLower = (el.name || '').toLowerCase();
+        if (idLower === 'basic' || idLower === 'da' || nameLower.includes('basic') || nameLower.includes('dearness')) {
+          return;
+        }
+
+        let displayName = (el.name || '').toUpperCase();
+        if (idLower === 'hra' || nameLower.includes('hra') || nameLower.includes('house rent')) {
+          displayName = 'HRA (HOUSE RENT)';
+        } else if (idLower === 'ca' || nameLower.includes('conveyance')) {
+          displayName = 'CONVEYANCE ALW';
+        } else if (idLower === 'oa' || nameLower.includes('other allowance') || nameLower.includes('special')) {
+          displayName = 'SPECIAL / OTHER ALW';
+        } else if (idLower === 'lta' || nameLower.includes('leave travel')) {
+          displayName = 'L.T.A';
+        } else if (idLower === 'bonus' || nameLower.includes('bonus')) {
+          displayName = 'ATTENDANCE / BONUS';
+        } else if (idLower === 'incentive' || nameLower.includes('incentive')) {
+          displayName = 'PERFORMANCE INCENTIVE';
+        } else if (idLower === 'overtime' || idLower === 'ot' || nameLower.includes('overtime')) {
+          displayName = 'OVERTIME PAY (OT)';
+        } else if (idLower === 'variablepay' || nameLower.includes('variable')) {
+          displayName = 'VARIABLE PAY';
+        } else if (idLower === 'night' || nameLower.includes('night')) {
+          displayName = 'NIGHT SHIFT ALW';
+        }
+
+        if (el.amount > 0 && !items.some((it) => it.name === displayName)) {
+          items.push({ name: displayName, amount: el.amount });
+        }
+      });
+    }
+
+    if (items.length === 0 && payrollComputation.gross > 0) {
+      items.push({ name: 'BASIC + DA', amount: payrollComputation.gross });
+    }
+    return items;
+  }, [payrollComputation]);
+
+  const itemizedDeductions = useMemo(() => {
+    const items: { name: string; amount: number }[] = [];
+    const ded = payrollComputation.deductions || {};
+
+    if (ded.employeePF > 0) items.push({ name: 'EPF (EMPLOYEE PF)', amount: ded.employeePF });
+    if (ded.employeeESI > 0) items.push({ name: 'ESIC (ESI)', amount: ded.employeeESI });
+    if (ded.professionalTax > 0) items.push({ name: 'PROFESSIONAL TAX (PT)', amount: ded.professionalTax });
+    if (ded.tds > 0) items.push({ name: 'TDS (INCOME TAX)', amount: ded.tds });
+    if ((ded as any).lwf > 0) items.push({ name: 'LABOUR WELFARE (LWF)', amount: (ded as any).lwf });
+    if ((ded as any).advance > 0) items.push({ name: 'SALARY ADVANCE', amount: (ded as any).advance });
+    if ((ded as any).loanEmi > 0 || (ded as any).loan > 0) {
+      items.push({ name: 'LOAN EMI DEDUCTION', amount: (ded as any).loanEmi || (ded as any).loan });
+    }
+
+    if (items.length === 0) {
+      items.push({ name: 'NIL STATUTORY DEDUCTIONS', amount: 0 });
+    }
+    return items;
+  }, [payrollComputation]);
+
+  const tableRowCount = Math.max(itemizedEarnings.length, itemizedDeductions.length, 6);
+
   // Annual CTC Calculation
   const annualCtcLpa = useMemo(() => {
     const fixed = currentUser?.fixedSalary || currentUser?.basic || 45000;
     return ((fixed * 12) / 100000).toFixed(1);
   }, [currentUser]);
 
-  const handleDownloadPDF = () => {
-    const downloadUrl = `${BACKEND_URL}/api/payroll/download-payslip?tenantId=${currentUser?.tenantId || 'default'}&employeeId=${currentUser?.id || currentUser?.empCode || ''}&month=${selectedMonthObj.key}`;
-    Linking.openURL(downloadUrl).catch(() => {
-      Alert.alert('Download Error', 'Could not open the download link. Please check your network connection.');
-    });
+  const handleDownloadPDF = async (monthKey?: string) => {
+    if (downloadingPdf) return;
+    setDownloadingPdf(true);
+
+    const targetMonth = monthKey || selectedMonthObj.key;
+    const isCurrent = targetMonth === selectedMonthObj.key;
+
+    let computation = payrollComputation;
+    if (!isCurrent) {
+      const matchRun = (payrolls || []).find(
+        (p: any) =>
+          (p.employeeId === currentUser?.id || p.employeeId === currentUser?.empCode) &&
+          (p.month === targetMonth)
+      );
+      if (matchRun?.computed) {
+        computation = matchRun.computed;
+      }
+    }
+
+    try {
+      const htmlContent = generatePayslipHtml({
+        company: companyConfig || {},
+        employee: currentUser || {},
+        month: targetMonth,
+        computation: computation || {},
+        paidDays: computation?.daysWorked !== undefined ? computation.daysWorked : presentDaysDisplay,
+        weekOffDaysCount: weekOffCount,
+        leaveDaysCount: leaveCount,
+        holidaysDaysCount: holidaysCount,
+        sundayWorkDaysCount: sundayWorkCount,
+        pendingAdvance: pendingAdvanceTotal,
+        docAssets: {
+          letterheadDataUrl: letterheadUrl || undefined,
+          footerDataUrl: footerUrl || undefined,
+        },
+        palette: palette,
+      });
+
+      const base64Html = utf8ToBase64(htmlContent);
+      const fileDataUrl = `data:text/html;base64,${base64Html}`;
+      const empIdentifier = currentUser?.empCode || currentUser?.id || 'EMP';
+      const fileName = `payslips/${empIdentifier}_${targetMonth}_${Date.now()}.html`;
+
+      const uploadRes = await uploadFile(currentUser?.tenantId || 'default', fileName, fileDataUrl);
+
+      if (uploadRes && uploadRes.success && uploadRes.url && uploadRes.url.startsWith('http')) {
+        await Linking.openURL(uploadRes.url);
+      } else {
+        const dataUri = `data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`;
+        await Linking.openURL(dataUri);
+      }
+    } catch (err: any) {
+      console.warn('Error downloading payslip:', err);
+      Alert.alert('Download Error', 'Could not open payslip. Please verify your network connection.');
+    } finally {
+      setDownloadingPdf(false);
+    }
   };
 
   return (
@@ -341,7 +602,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
               Net Take-Home Salary
             </Text>
             <Text style={styles.amountBoxValueFilled}>
-              {formatInr(payrollComputation.net)}
+              ₹{formatInr(payrollComputation.net)}
             </Text>
             <Text style={styles.amountBoxWordsFilled} numberOfLines={1}>
               {numberToWordsIndian(payrollComputation.net)}
@@ -373,7 +634,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
 
               <TouchableOpacity
                 style={[styles.heroActionBtnFilledDark, { backgroundColor: theme.primaryDark }]}
-                onPress={handleDownloadPDF}
+                onPress={() => handleDownloadPDF()}
                 activeOpacity={0.8}
               >
                 <Icon name="download" size={13} color="#ffffff" />
@@ -429,7 +690,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                   breakdownTab === 'earnings' && { color: theme.textPrimary, fontWeight: '800' },
                 ]}
               >
-                Earnings ({formatInr(payrollComputation.gross)})
+                Earnings (₹{formatInr(payrollComputation.gross)})
               </Text>
             </TouchableOpacity>
 
@@ -445,7 +706,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                   breakdownTab === 'deductions' && { color: theme.textPrimary, fontWeight: '800' },
                 ]}
               >
-                Deductions ({formatInr(payrollComputation.totalDeductions)})
+                Deductions (₹{formatInr(payrollComputation.totalDeductions)})
               </Text>
             </TouchableOpacity>
           </View>
@@ -464,7 +725,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                   >
                     <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>{item.name}</Text>
                     <Text style={[styles.itemValue, { color: item.id === 'ot' ? theme.accent : theme.textPrimary }]}>
-                      {item.id === 'ot' ? '+' : ''}{formatInr(item.amount)}
+                      {item.id === 'ot' ? '+' : ''}₹{formatInr(item.amount)}
                     </Text>
                   </View>
                 ))}
@@ -472,7 +733,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                 <View style={[styles.subtotalRow, { backgroundColor: theme.isDark ? 'rgba(16, 185, 129, 0.08)' : '#f0fdf4', borderColor: theme.isDark ? 'rgba(16, 185, 129, 0.2)' : '#bbf7d0' }]}>
                   <Text style={[styles.subtotalLabel, { color: theme.textPrimary }]}>Total Gross Earnings</Text>
                   <Text style={[styles.subtotalValue, { color: theme.success }]}>
-                    {formatInr(payrollComputation.gross)}
+                    ₹{formatInr(payrollComputation.gross)}
                   </Text>
                 </View>
               </>
@@ -481,35 +742,35 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                 {payrollComputation.deductions.employeePF > 0 && (
                   <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
                     <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>Provident Fund (PF)</Text>
-                    <Text style={[styles.itemValue, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.employeePF)}</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger }]}>-₹{formatInr(payrollComputation.deductions.employeePF)}</Text>
                   </View>
                 )}
 
                 {payrollComputation.deductions.employeeESI > 0 && (
                   <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
                     <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>Employee State Insurance (ESI)</Text>
-                    <Text style={[styles.itemValue, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.employeeESI)}</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger }]}>-₹{formatInr(payrollComputation.deductions.employeeESI)}</Text>
                   </View>
                 )}
 
                 {payrollComputation.deductions.professionalTax > 0 && (
                   <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
                     <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>Professional Tax (PT)</Text>
-                    <Text style={[styles.itemValue, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.professionalTax)}</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger }]}>-₹{formatInr(payrollComputation.deductions.professionalTax)}</Text>
                   </View>
                 )}
 
                 {payrollComputation.deductions.tds > 0 && (
                   <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
                     <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>Income Tax (TDS)</Text>
-                    <Text style={[styles.itemValue, { color: theme.danger }]}>-{formatInr(payrollComputation.deductions.tds)}</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger }]}>-₹{formatInr(payrollComputation.deductions.tds)}</Text>
                   </View>
                 )}
 
                 {(payrollComputation.deductions as any).loanEmi > 0 && (
                   <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
                     <Text style={[styles.itemLabel, { color: '#059669', fontWeight: '600' }]}>Advance Salary Loan (EMI)</Text>
-                    <Text style={[styles.itemValue, { color: theme.danger, fontWeight: '700' }]}>-{formatInr((payrollComputation.deductions as any).loanEmi)}</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger, fontWeight: '700' }]}>-₹{formatInr((payrollComputation.deductions as any).loanEmi)}</Text>
                   </View>
                 )}
 
@@ -523,7 +784,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                 <View style={[styles.subtotalRow, { backgroundColor: theme.isDark ? 'rgba(239, 68, 68, 0.08)' : '#fef2f2', borderColor: theme.isDark ? 'rgba(239, 68, 68, 0.2)' : '#fecaca' }]}>
                   <Text style={[styles.subtotalLabel, { color: theme.textPrimary }]}>Total Statutory Deductions</Text>
                   <Text style={[styles.subtotalValue, { color: theme.danger }]}>
-                    -{formatInr(payrollComputation.totalDeductions)}
+                    -₹{formatInr(payrollComputation.totalDeductions)}
                   </Text>
                 </View>
               </>
@@ -567,7 +828,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
               <View>
                 <Text style={[styles.historyMonth, { color: theme.textPrimary }]}>{mObj.label}</Text>
                 <Text style={[styles.historyNet, { color: theme.textMuted }]}>
-                  {hasProcessed ? `Net Paid: ${formatInr(histNet)}` : 'Not Processed'}
+                  {hasProcessed ? `Net Paid: ₹${formatInr(histNet)}` : 'Not Processed'}
                 </Text>
               </View>
 
@@ -585,10 +846,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.historyPdfBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
-                    onPress={() => {
-                      const url = `${BACKEND_URL}/api/payroll/download-payslip?tenantId=${currentUser?.tenantId || 'default'}&employeeId=${currentUser?.id || currentUser?.empCode || ''}&month=${mObj.key}`;
-                      Linking.openURL(url).catch(() => Alert.alert('Error', 'Could not open download link.'));
-                    }}
+                    onPress={() => handleDownloadPDF(mObj.key)}
                   >
                     <Icon name="download" size={13} color="#ffffff" />
                     <Text style={[styles.historyPdfIcon, { color: '#ffffff' }]}>PDF</Text>
@@ -645,200 +903,421 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
         </View>
       </Modal>
 
-      {/* MODAL 2: OFFICIAL CORPORATE PAYSLIP DOCUMENT MODAL (EXACT MATCH OF ADMIN PANEL generateSalarySlipPDF) */}
+      {/* MODAL 2: OFFICIAL CORPORATE PAYSLIP DOCUMENT MODAL (EXACT MATCH OF SWIFT ADMIN PAYSLIP TEMPLATE) */}
       <Modal visible={payslipModalOpen} animationType="slide" transparent>
         <View style={styles.payslipOverlay}>
-          <View style={styles.payslipModalCard}>
-            {/* Header Navy Bar (#0F172A matching Admin Panel PDF) */}
-            <View style={styles.pdfNavyHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.pdfHeaderBrand}>{companyConfig?.companyName || 'SWIFT HRMS'}</Text>
-                <Text style={styles.pdfHeaderSub}>{companyConfig?.legalName || companyConfig?.companyName || 'Corporate Enterprise Ltd'}</Text>
+          <View style={[styles.payslipModalCard, { borderColor: `${palette.primaryHex}40` }]}>
+            {/* Top Close Bar */}
+            <View style={styles.payslipTopBar}>
+              <View style={styles.payslipTopBarTitleGroup}>
+                <Icon name="receipt-cutoff" size={15} color={palette.primaryHex} />
+                <Text style={[styles.payslipTopBarTitle, { color: palette.primaryHex }]}>
+                  OFFICIAL PAYSLIP PREVIEW
+                </Text>
               </View>
-
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.pdfHeaderTitle}>SALARY PAYSLIP</Text>
-                <Text style={styles.pdfHeaderMonth}>{selectedMonthObj.label.toUpperCase()}</Text>
-              </View>
+              <TouchableOpacity
+                style={styles.payslipCloseIconBtn}
+                onPress={() => setPayslipModalOpen(false)}
+              >
+                <Icon name="cross" size={16} color="#64748b" />
+              </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.payslipModalBody} contentContainerStyle={{ padding: 16 }}>
-              {/* Employee Metadata Card Table */}
-              <View style={styles.pdfMetaCard}>
-                <View style={styles.pdfMetaRow}>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>Employee Name</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.name || '—'}</Text>
+            <ScrollView
+              style={styles.payslipModalBody}
+              contentContainerStyle={{ padding: 8, paddingBottom: 24 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Document Container Card */}
+              <View style={[styles.docContainer, { borderColor: `${palette.primaryHex}40` }]}>
+                
+                {/* 1. TOP LETTERHEAD (Rendered ONLY if letterheadUrl is uploaded) */}
+                {letterheadUrl ? (
+                  <View style={[styles.letterheadBox, { borderColor: `${palette.primaryHex}30` }]}>
+                    <Image
+                      source={{ uri: letterheadUrl }}
+                      style={styles.letterheadImg}
+                      resizeMode="contain"
+                    />
                   </View>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>Employee Code</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.empCode || currentUser?.code || '—'}</Text>
-                  </View>
-                </View>
+                ) : null}
 
-                <View style={styles.pdfMetaRow}>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>Designation</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.designation || '—'}</Text>
-                  </View>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>Department</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.department || '—'}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.pdfMetaRow}>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>Date of Joining</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.joiningDate || currentUser?.doj || '—'}</Text>
-                  </View>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>PAN Number</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.panNumber || currentUser?.pan || '—'}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.pdfMetaRow}>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>PF UAN No</Text>
-                    <Text style={styles.pdfMetaVal}>{(currentUser as any)?.uan || '—'}</Text>
-                  </View>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>ESI No</Text>
-                    <Text style={styles.pdfMetaVal}>{(currentUser as any)?.esiNumber || '—'}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.pdfMetaRow}>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>Bank Account</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.bankAccount || (currentUser?.bankAcc ? `A/C: ${currentUser.bankAcc}` : '—')}</Text>
-                  </View>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>Bank IFSC</Text>
-                    <Text style={styles.pdfMetaVal}>{currentUser?.bankIfsc || '—'}</Text>
-                  </View>
-                </View>
-
-                <View style={[styles.pdfMetaRow, { borderBottomWidth: 0 }]}>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>Working Days</Text>
-                    <Text style={styles.pdfMetaVal}>{companyConfig?.workingDaysPerMonth || 26} Days</Text>
-                  </View>
-                  <View style={styles.pdfMetaCol}>
-                    <Text style={styles.pdfMetaLabel}>Present Days</Text>
-                    <Text style={styles.pdfMetaVal}>{payrollComputation.daysWorked} Days</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Side-by-Side Itemized Tables (Earnings vs Deductions) */}
-              <View style={styles.pdfTableGrid}>
-                {/* Earnings Table */}
-                <View style={styles.pdfTableCard}>
-                  <View style={styles.pdfTableHeader}>
-                    <Text style={styles.pdfTableHeaderText}>EARNINGS</Text>
-                    <Text style={styles.pdfTableHeaderText}>AMOUNT</Text>
-                  </View>
-
-                  {payrollComputation.earningsList.map((earn: any) => (
-                    <View key={earn.id} style={styles.pdfTableRow}>
-                      <Text style={styles.pdfTableLabel}>{earn.name}</Text>
-                      <Text style={styles.pdfTableAmount}>{formatInr(earn.amount)}</Text>
+                {/* 2. TOP BRAND HEADER (Company Title & Address) */}
+                <View
+                  style={[
+                    styles.payslipBanner,
+                    {
+                      backgroundColor: palette.primaryDarkHex,
+                      borderBottomColor: `${palette.accentHex}90`,
+                    },
+                  ]}
+                >
+                  <View style={styles.payslipBannerRow}>
+                    <View style={{ flex: 1, paddingRight: 6 }}>
+                      <Text style={styles.payslipBannerCompany} numberOfLines={1} ellipsizeMode="tail">
+                        {companyConfig?.legalName || companyConfig?.name || companyConfig?.companyName || currentUser?.companyName || 'SWIFT HRMS'}
+                      </Text>
+                      <View
+                        style={[
+                          styles.payslipTagPill,
+                          {
+                            backgroundColor: `${palette.accentHex}35`,
+                            borderColor: `${palette.accentHex}80`,
+                          },
+                        ]}
+                      >
+                        <Text style={styles.payslipTagText}>SALARY / WAGE SLIP &amp; TIME CARD</Text>
+                      </View>
                     </View>
-                  ))}
+
+                    <View style={styles.payslipAddressCol}>
+                      <Icon name="building" size={11} color="#ffffff" style={{ marginTop: 2 }} />
+                      <Text style={styles.payslipBannerBranch} numberOfLines={2} ellipsizeMode="tail">
+                        {currentUser?.branch || companyConfig?.address || companyConfig?.branch || 'Corporate Office'}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
 
-                {/* Deductions Table */}
-                <View style={styles.pdfTableCard}>
-                  <View style={styles.pdfTableHeader}>
-                    <Text style={styles.pdfTableHeaderText}>DEDUCTIONS</Text>
-                    <Text style={styles.pdfTableHeaderText}>AMOUNT</Text>
+                {/* 3. EMPLOYEE METADATA GRID (3-Column Clean Table Layout) */}
+                <View style={styles.empGridTable}>
+                  {/* Row 1: Name | Employee Code | Designation */}
+                  <View style={styles.empGridRow}>
+                    <View style={[styles.empGridCell, { flex: 1.15 }]}>
+                      <Text style={styles.empGridLabel}>Name</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridValBold} numberOfLines={1} ellipsizeMode="tail">
+                        {currentUser?.name || '—'}
+                      </Text>
+                    </View>
+                    <View style={[styles.empGridCell, { flex: 1 }]}>
+                      <Text style={styles.empGridLabel}>Employee Code</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={[styles.empGridValBold, { color: palette.primaryHex }]} numberOfLines={1}>
+                        {currentUser?.empCode || currentUser?.code || '—'}
+                      </Text>
+                    </View>
+                    <View style={[styles.empGridCell, { flex: 1, borderRightWidth: 0 }]}>
+                      <Text style={styles.empGridLabel}>Designation</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridValBold} numberOfLines={1} ellipsizeMode="tail">
+                        {currentUser?.designation || '—'}
+                      </Text>
+                    </View>
                   </View>
 
-                  {payrollComputation.deductions.employeePF > 0 && (
-                    <View style={styles.pdfTableRow}>
-                      <Text style={styles.pdfTableLabel}>Provident Fund (PF)</Text>
-                      <Text style={[styles.pdfTableAmount, { color: '#e11d48' }]}>-{formatInr(payrollComputation.deductions.employeePF)}</Text>
+                  {/* Row 2: Gender | Month & Year | Father Name */}
+                  <View style={styles.empGridRow}>
+                    <View style={[styles.empGridCell, { flex: 1.15 }]}>
+                      <Text style={styles.empGridLabel}>Gender</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridVal} numberOfLines={1}>
+                        {currentUser?.gender ? currentUser.gender.toUpperCase() : 'MALE'}
+                      </Text>
                     </View>
-                  )}
+                    <View style={[styles.empGridCell, { flex: 1 }]}>
+                      <Text style={styles.empGridLabel}>Month &amp; Year</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridValBold} numberOfLines={1}>
+                        {formattedMonthDateStr} ({formattedMonthNameStr.slice(0, 3)})
+                      </Text>
+                    </View>
+                    <View style={[styles.empGridCell, { flex: 1, borderRightWidth: 0 }]}>
+                      <Text style={styles.empGridLabel}>Father Name</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridVal} numberOfLines={1} ellipsizeMode="tail">
+                        {currentUser?.fatherName || '—'}
+                      </Text>
+                    </View>
+                  </View>
 
-                  {payrollComputation.deductions.employeeESI > 0 && (
-                    <View style={styles.pdfTableRow}>
-                      <Text style={styles.pdfTableLabel}>Employee State Insurance (ESI)</Text>
-                      <Text style={[styles.pdfTableAmount, { color: '#e11d48' }]}>-{formatInr(payrollComputation.deductions.employeeESI)}</Text>
+                  {/* Row 3: D.O.J | D.O.B | Pay Slab */}
+                  <View style={styles.empGridRow}>
+                    <View style={[styles.empGridCell, { flex: 1.15 }]}>
+                      <Text style={styles.empGridLabel}>D.O.J</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridVal} numberOfLines={1}>
+                        {currentUser?.joiningDate || currentUser?.doj || '—'}
+                      </Text>
                     </View>
-                  )}
+                    <View style={[styles.empGridCell, { flex: 1 }]}>
+                      <Text style={styles.empGridLabel}>D.O.B</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridVal} numberOfLines={1}>
+                        {currentUser?.dob || '—'}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.empGridCell,
+                        {
+                          flex: 1,
+                          borderRightWidth: 0,
+                          backgroundColor: `${palette.primaryHex}10`,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.empGridLabel, { color: palette.primaryHex }]}>Pay Slab</Text>
+                      <Text style={[styles.empGridColon, { color: palette.primaryHex }]}>:</Text>
+                      <Text style={[styles.empGridValBold, { color: palette.primaryHex }]} numberOfLines={1}>
+                        ₹{formatInr(paySlabPerDay)}/d
+                      </Text>
+                    </View>
+                  </View>
 
-                  {payrollComputation.deductions.professionalTax > 0 && (
-                    <View style={styles.pdfTableRow}>
-                      <Text style={styles.pdfTableLabel}>Professional Tax (PT)</Text>
-                      <Text style={[styles.pdfTableAmount, { color: '#e11d48' }]}>-{formatInr(payrollComputation.deductions.professionalTax)}</Text>
+                  {/* Row 4: PF.No / UAN | ESI.No | Fixed Salary */}
+                  <View style={styles.empGridRow}>
+                    <View style={[styles.empGridCell, { flex: 1.15 }]}>
+                      <Text style={styles.empGridLabel}>PF.No / UAN</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridVal} numberOfLines={1} ellipsizeMode="tail">
+                        {(currentUser as any)?.uan || (currentUser as any)?.pfNumber || '—'}
+                      </Text>
                     </View>
-                  )}
+                    <View style={[styles.empGridCell, { flex: 1 }]}>
+                      <Text style={styles.empGridLabel}>ESI.No</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridVal} numberOfLines={1}>
+                        {(currentUser as any)?.esiNumber || (currentUser as any)?.esic || (payrollComputation.deductions.employeeESI > 0 ? 'Applicable' : 'NA')}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.empGridCell,
+                        {
+                          flex: 1,
+                          borderRightWidth: 0,
+                          backgroundColor: `${palette.primaryHex}08`,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.empGridLabel, { color: palette.primaryHex }]}>Fixed Salary</Text>
+                      <Text style={[styles.empGridColon, { color: palette.primaryHex }]}>:</Text>
+                      <Text style={[styles.empGridValBold, { color: palette.primaryHex }]} numberOfLines={1}>
+                        ₹{formatInr(fixedGrossSalary)}/m
+                      </Text>
+                    </View>
+                  </View>
 
-                  {payrollComputation.deductions.tds > 0 && (
-                    <View style={styles.pdfTableRow}>
-                      <Text style={styles.pdfTableLabel}>Income Tax (TDS)</Text>
-                      <Text style={[styles.pdfTableAmount, { color: '#e11d48' }]}>-{formatInr(payrollComputation.deductions.tds)}</Text>
+                  {/* Row 5: Bank A/C | Bank IFSC | PAN / Dept */}
+                  <View style={[styles.empGridRow, { borderBottomWidth: 0 }]}>
+                    <View style={[styles.empGridCell, { flex: 1.15 }]}>
+                      <Text style={styles.empGridLabel}>Bank A/C</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridVal} numberOfLines={1} ellipsizeMode="tail">
+                        {currentUser?.bankAccount || currentUser?.bankAcc || '—'}
+                      </Text>
                     </View>
-                  )}
-
-                  {(payrollComputation.deductions as any).loanEmi > 0 && (
-                    <View style={styles.pdfTableRow}>
-                      <Text style={[styles.pdfTableLabel, { color: '#047857', fontWeight: '600' }]}>Advance Salary Loan (EMI)</Text>
-                      <Text style={[styles.pdfTableAmount, { color: '#e11d48', fontWeight: '700' }]}>-{formatInr((payrollComputation.deductions as any).loanEmi)}</Text>
+                    <View style={[styles.empGridCell, { flex: 1 }]}>
+                      <Text style={styles.empGridLabel}>Bank IFSC</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridVal} numberOfLines={1} ellipsizeMode="tail">
+                        {currentUser?.bankIfsc || '—'}
+                      </Text>
                     </View>
-                  )}
-
-                  {payrollComputation.totalDeductions === 0 && (
-                    <View style={styles.pdfTableRow}>
-                      <Text style={[styles.pdfTableLabel, { fontStyle: 'italic', color: '#94a3b8' }]}>No active deductions</Text>
-                      <Text style={styles.pdfTableAmount}>₹0</Text>
+                    <View style={[styles.empGridCell, { flex: 1, borderRightWidth: 0 }]}>
+                      <Text style={styles.empGridLabel}>PAN / Dept</Text>
+                      <Text style={styles.empGridColon}>:</Text>
+                      <Text style={styles.empGridVal} numberOfLines={1} ellipsizeMode="tail">
+                        {currentUser?.panNumber || currentUser?.pan || '—'} · {currentUser?.department || '—'}
+                      </Text>
                     </View>
-                  )}
+                  </View>
                 </View>
-              </View>
 
-              {/* Summary Bar */}
-              <View style={styles.pdfSummaryBar}>
-                <View>
-                  <Text style={styles.pdfSummaryLabel}>Total Gross Earnings</Text>
-                  <Text style={styles.pdfSummaryVal}>{formatInr(payrollComputation.gross)}</Text>
+                {/* 4. ATTENDANCE SECTION (Accent Header & 8 Metric Tiles) */}
+                <View style={styles.attSection}>
+                  <View style={[styles.attHeaderBar, { backgroundColor: palette.primaryHex }]}>
+                    <Icon name="calendar" size={12} color="#ffffff" />
+                    <Text style={styles.attHeaderTitle}>ATTENDANCE SUMMARY</Text>
+                  </View>
+
+                  {/* 8-Tile Attendance Matrix */}
+                  <View style={styles.attTilesGrid}>
+                    {/* Tile 1: Month Days */}
+                    <View style={[styles.attTile, styles.attTileNeutral]}>
+                      <Text style={styles.attTileLabel}>Month Days</Text>
+                      <Text style={styles.attTileValBold}>{daysInMonth}</Text>
+                    </View>
+
+                    {/* Tile 2: Pay Days (Sky) */}
+                    <View style={[styles.attTile, styles.attTileSky]}>
+                      <Text style={[styles.attTileLabel, { color: '#0369a1' }]}>Pay Days</Text>
+                      <Text style={[styles.attTileValBold, { color: '#0369a1' }]}>{workingDaysCount}</Text>
+                    </View>
+
+                    {/* Tile 3: Present (Emerald) */}
+                    <View style={[styles.attTile, styles.attTileEmerald]}>
+                      <Text style={[styles.attTileLabel, { color: '#047857' }]}>Present</Text>
+                      <Text style={[styles.attTileValBold, { color: '#047857' }]}>{presentDaysDisplay}</Text>
+                    </View>
+
+                    {/* Tile 4: Leave (Rose) */}
+                    <View style={[styles.attTile, styles.attTileRose]}>
+                      <Text style={[styles.attTileLabel, { color: '#be123c' }]}>Leave</Text>
+                      <Text style={[styles.attTileValBold, { color: '#be123c' }]}>{leaveCount}</Text>
+                    </View>
+
+                    {/* Tile 5: Week Off (Indigo) */}
+                    <View style={[styles.attTile, styles.attTileIndigo]}>
+                      <Text style={[styles.attTileLabel, { color: '#4338ca' }]}>Week Off</Text>
+                      <Text style={[styles.attTileValBold, { color: '#4338ca' }]}>{weekOffCount}</Text>
+                    </View>
+
+                    {/* Tile 6: Holidays (Amber) */}
+                    <View style={[styles.attTile, styles.attTileAmber]}>
+                      <Text style={[styles.attTileLabel, { color: '#b45309' }]}>Holidays</Text>
+                      <Text style={[styles.attTileValBold, { color: '#b45309' }]}>{holidaysCount}</Text>
+                    </View>
+
+                    {/* Tile 7: Sunday Work (Purple) */}
+                    <View style={[styles.attTile, styles.attTilePurple]}>
+                      <Text style={[styles.attTileLabel, { color: '#7e22ce' }]}>Sunday Work</Text>
+                      <Text style={[styles.attTileValBold, { color: '#7e22ce' }]}>{sundayWorkCount}</Text>
+                    </View>
+
+                    {/* Tile 8: Pending Adv. */}
+                    <View style={[styles.attTile, styles.attTileNeutral]}>
+                      <Text style={styles.attTileLabel}>Pending Adv.</Text>
+                      <Text style={styles.attTileValBold}>₹{formatInr(pendingAdvanceTotal)}</Text>
+                    </View>
+                  </View>
                 </View>
 
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.pdfSummaryLabel}>Total Deductions</Text>
-                  <Text style={[styles.pdfSummaryVal, { color: '#e11d48' }]}>-{formatInr(payrollComputation.totalDeductions)}</Text>
-                </View>
-              </View>
+                {/* 5. 2-COLUMN TABLE: EARNINGS (ACTUAL EARNED) vs DEDUCTIONS & RECOVERIES */}
+                <View style={styles.tableContainer}>
+                  {/* Table Headers */}
+                  <View style={styles.tableHeaderRow}>
+                    <View style={styles.tableHeaderLeft}>
+                      <Text style={styles.tableHeaderText} numberOfLines={1}>EARNINGS (ACTUAL EARNED)</Text>
+                    </View>
+                    <View style={styles.tableHeaderRight}>
+                      <Text style={styles.tableHeaderText} numberOfLines={1}>DEDUCTIONS &amp; RECOVERIES</Text>
+                    </View>
+                  </View>
 
-              {/* Net Take-Home Salary Payable Box (Corporate Dark Slate #0F172A) */}
-              <View style={styles.pdfNetBox}>
-                <View style={styles.pdfNetRow}>
-                  <Text style={styles.pdfNetLabel}>NET TAKE-HOME SALARY PAYABLE</Text>
-                  <Text style={styles.pdfNetVal}>{formatInr(payrollComputation.net)}</Text>
+                  {/* Itemized Rows */}
+                  {Array.from({ length: tableRowCount }).map((_, idx) => {
+                    const earn = itemizedEarnings[idx];
+                    const ded = itemizedDeductions[idx];
+                    return (
+                      <View key={`payslip-row-${idx}`} style={styles.tableItemRow}>
+                        {/* Left Column: Earnings */}
+                        <View style={styles.tableCellLeft}>
+                          <Text style={styles.cellItemName} numberOfLines={1} ellipsizeMode="tail">
+                            {earn ? earn.name : ''}
+                          </Text>
+                          <Text style={styles.cellEarnAmount} numberOfLines={1}>
+                            {earn ? `: ₹${formatInr(earn.amount)}` : ''}
+                          </Text>
+                        </View>
+
+                        {/* Right Column: Deductions */}
+                        <View style={styles.tableCellRight}>
+                          <Text style={styles.cellItemName} numberOfLines={1} ellipsizeMode="tail">
+                            {ded ? ded.name : ''}
+                          </Text>
+                          <Text style={styles.cellDedAmount} numberOfLines={1}>
+                            {ded ? `: ₹${formatInr(ded.amount)}` : ''}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  {/* Totals Row */}
+                  <View style={styles.tableTotalRow}>
+                    <View style={styles.tableTotalCellLeft}>
+                      <Text style={styles.totalLabelEarn} numberOfLines={1}>Gross Earnings</Text>
+                      <Text style={styles.totalAmountEarn} numberOfLines={1}>
+                        : ₹{formatInr(payrollComputation.gross)}
+                      </Text>
+                    </View>
+                    <View style={styles.tableTotalCellRight}>
+                      <Text style={styles.totalLabelDed} numberOfLines={1}>Total Deductions</Text>
+                      <Text style={styles.totalAmountDed} numberOfLines={1}>
+                        : ₹{formatInr(payrollComputation.totalDeductions)}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
 
-                <View style={styles.pdfWordsRow}>
-                  <Text style={styles.pdfWordsText}>
-                    Amount in Words: {numberToWordsIndian(payrollComputation.net)}
+                {/* 6. FULL WIDTH NET TAKE-HOME PAY HIGHLIGHT BANNER */}
+                <View
+                  style={[
+                    styles.netPayBanner,
+                    {
+                      backgroundColor: palette.primaryHex,
+                      borderTopColor: `${palette.accentHex}80`,
+                    },
+                  ]}
+                >
+                  <Text style={styles.netPayBannerLabel}>NET TAKE-HOME PAY</Text>
+                  <Text style={styles.netPayBannerVal}>
+                    : ₹{formatInr(payrollComputation.net)}
                   </Text>
                 </View>
-              </View>
 
-              {/* Computer-Generated Disclaimer Footer */}
-              <View style={styles.pdfDisclaimerBox}>
-                <Text style={styles.pdfDisclaimerText}>
-                  This is a computer-generated payslip issued via SWIFT HRMS and does not require a physical signature.
-                </Text>
-                <Text style={styles.pdfDisclaimerSub}>
-                  Generated on {new Date().toLocaleString()} · Confidential &amp; Privileged Document
-                </Text>
+                {/* 7. BANK DISBURSEMENT FOOTER */}
+                <View style={[styles.disbursalBox, { borderTopColor: `${palette.primaryHex}40` }]}>
+                  <View style={styles.disbursalRow}>
+                    <View style={[styles.disbursalCol, { flex: 1 }]}>
+                      <Icon name="credit-card" size={12} color={palette.primaryHex} />
+                      <View style={{ flex: 1, marginLeft: 4 }}>
+                        <Text style={styles.disbursalLabel}>IFSC CODE</Text>
+                        <Text style={styles.disbursalVal} numberOfLines={1}>
+                          {currentUser?.bankIfsc || '—'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.disbursalCol, { flex: 1.25 }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.disbursalLabel}>CREDITED INTO ACCOUNT</Text>
+                        <Text style={styles.disbursalVal} numberOfLines={1} ellipsizeMode="tail">
+                          A/C NO : {currentUser?.bankAccount || currentUser?.bankAcc || '—'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.disbursalCol, { flex: 1.25, borderRightWidth: 0 }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.disbursalLabel}>BANK NAME</Text>
+                        <Text style={[styles.disbursalVal, { color: palette.primaryHex }]} numberOfLines={1}>
+                          {currentUser?.bankName || companyConfig?.bankName || 'Corporate Bank Transfer'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Amount In Words & Verified Tag */}
+                  <View style={styles.amountInWordsRow}>
+                    <Text style={styles.amountInWordsText} numberOfLines={2}>
+                      <Text style={{ fontWeight: '800' }}>Amount in Words: </Text>
+                      <Text style={{ fontStyle: 'italic' }}>{numberToWordsIndian(payrollComputation.net)}</Text>
+                    </Text>
+                    <View style={styles.verifiedTag}>
+                      <Icon name="shield-check" size={12} color="#059669" />
+                      <Text style={styles.verifiedText}>Verified Computer Generated Payslip</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* 8. COMPANY DOCUMENT FOOTER (Rendered ONLY if uploaded) */}
+                {footerUrl ? (
+                  <View style={[styles.footerBox, { borderTopColor: `${palette.primaryHex}30` }]}>
+                    <Image
+                      source={{ uri: footerUrl }}
+                      style={styles.footerImg}
+                      resizeMode="contain"
+                    />
+                  </View>
+                ) : null}
+
               </View>
             </ScrollView>
 
-            {/* Action Bar */}
+            {/* Bottom Action Footer */}
             <View style={styles.pdfActionFooter}>
               <TouchableOpacity
                 style={styles.pdfCloseBtn}
@@ -848,11 +1327,18 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.pdfDownloadBtn}
-                onPress={handleDownloadPDF}
+                style={[styles.pdfDownloadBtn, { backgroundColor: palette.primaryHex, opacity: downloadingPdf ? 0.7 : 1 }]}
+                onPress={() => handleDownloadPDF()}
+                disabled={downloadingPdf}
               >
-                <Icon name="download" size={16} color="#ffffff" />
-                <Text style={styles.pdfDownloadBtnText}>Download PDF Payslip</Text>
+                {downloadingPdf ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Icon name="download" size={15} color="#ffffff" />
+                )}
+                <Text style={styles.pdfDownloadBtnText}>
+                  {downloadingPdf ? 'Preparing Payslip...' : 'Download PDF Payslip'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1222,20 +1708,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Official Payslip PDF Modal Styles matching Admin Panel (#0F172A)
+  // Official Payslip PDF Modal Styles matching Admin Panel Letterhead Theme
   payslipOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.85)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 10,
+    padding: 6,
   },
   payslipModalCard: {
-    width: '96%',
-    height: '88%',
-    maxWidth: 500,
+    width: '98%',
+    height: '95%',
+    maxWidth: 540,
     backgroundColor: '#ffffff',
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: 'hidden',
     flexDirection: 'column',
     shadowColor: '#000',
@@ -1243,218 +1729,465 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 15,
     elevation: 10,
+    borderWidth: 1.5,
   },
-  pdfNavyHeader: {
-    backgroundColor: '#0F172A',
-    padding: 16,
+  payslipTopBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
   },
-  pdfHeaderBrand: {
-    color: '#ffffff',
-    fontSize: 16,
+  payslipTopBarTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  payslipTopBarTitle: {
+    fontSize: 12,
     fontWeight: '900',
     letterSpacing: 0.5,
   },
-  pdfHeaderSub: {
-    color: '#cbd5e1',
-    fontSize: 10,
-    marginTop: 2,
-  },
-  pdfHeaderTitle: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  pdfHeaderMonth: {
-    color: '#38bdf8',
-    fontSize: 10,
-    fontWeight: '800',
-    marginTop: 2,
+  payslipCloseIconBtn: {
+    padding: 5,
+    borderRadius: 8,
+    backgroundColor: '#f1f5f9',
   },
   payslipModalBody: {
     flex: 1,
     backgroundColor: '#ffffff',
   },
-  pdfMetaCard: {
-    backgroundColor: '#f8fafc',
-    borderColor: '#e2e8f0',
-    borderWidth: 1,
+  docContainer: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
     borderRadius: 12,
-    marginBottom: 14,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  pdfMetaRow: {
+  letterheadBox: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  letterheadImg: {
+    width: '100%',
+    height: 65,
+  },
+  payslipBanner: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 2,
+  },
+  payslipBannerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  payslipBannerCompany: {
+    color: '#ffffff',
+    fontSize: 12.5,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  payslipTagPill: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  payslipTagText: {
+    color: '#ffffff',
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  payslipAddressCol: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 4,
+    maxWidth: 150,
+    borderLeftWidth: 1,
+    borderLeftColor: 'rgba(255, 255, 255, 0.25)',
+    paddingLeft: 8,
+  },
+  payslipBannerBranch: {
+    color: 'rgba(255, 255, 255, 0.95)',
+    fontSize: 8.5,
+    fontWeight: '500',
+    lineHeight: 11,
+    flexShrink: 1,
+  },
+  empGridTable: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#cbd5e1',
+    backgroundColor: 'rgba(248, 250, 252, 0.6)',
+  },
+  empGridRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
-  pdfMetaCol: {
-    flex: 1,
-    padding: 8,
-    paddingHorizontal: 10,
-  },
-  pdfMetaLabel: {
-    fontSize: 9,
-    color: '#64748b',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  pdfMetaVal: {
-    fontSize: 11,
-    color: '#0f172a',
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  pdfTableGrid: {
-    gap: 10,
-    marginBottom: 14,
-  },
-  pdfTableCard: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
+  empGridCell: {
+    paddingHorizontal: 5,
+    paddingVertical: 3.5,
+    borderRightWidth: 1,
+    borderRightColor: '#e2e8f0',
+    flexDirection: 'row',
+    alignItems: 'center',
     overflow: 'hidden',
   },
-  pdfTableHeader: {
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 12,
+  empGridLabel: {
+    fontSize: 7.8,
+    color: '#64748b',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    flexShrink: 0,
+  },
+  empGridColon: {
+    fontSize: 7.8,
+    color: '#94a3b8',
+    marginHorizontal: 2,
+    flexShrink: 0,
+  },
+  empGridVal: {
+    fontSize: 8,
+    color: '#0f172a',
+    fontWeight: '600',
+    flex: 1,
+  },
+  empGridValBold: {
+    fontSize: 8,
+    color: '#0f172a',
+    fontWeight: '900',
+    flex: 1,
+  },
+  attSection: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#cbd5e1',
+  },
+  attHeaderBar: {
+    paddingVertical: 3.5,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  attHeaderTitle: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  attTilesGrid: {
+    padding: 5,
+    backgroundColor: '#f8fafc',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  attTile: {
+    width: '23.8%',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  attTileNeutral: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0',
+  },
+  attTileSky: {
+    backgroundColor: '#f0f9ff',
+    borderColor: '#bae6fd',
+  },
+  attTileEmerald: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
+  },
+  attTileRose: {
+    backgroundColor: '#fff1f2',
+    borderColor: '#fecdd3',
+  },
+  attTileIndigo: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  attTileAmber: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
+  },
+  attTilePurple: {
+    backgroundColor: '#faf5ff',
+    borderColor: '#e9d5ff',
+  },
+  attTileLabel: {
+    fontSize: 7.5,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  attTileValBold: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#0f172a',
+    marginTop: 1,
+    textAlign: 'center',
+  },
+  tableContainer: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#cbd5e1',
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+  },
+  tableHeaderLeft: {
+    flex: 1,
+    backgroundColor: '#047857',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#ffffff40',
+  },
+  tableHeaderRight: {
+    flex: 1,
+    backgroundColor: '#be123c',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+  },
+  tableHeaderText: {
+    color: '#ffffff',
+    fontSize: 8.5,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  tableItemRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    minHeight: 22,
+  },
+  tableCellLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 2.5,
+    borderRightWidth: 1,
+    borderRightColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+  },
+  tableCellRight: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 2.5,
+    backgroundColor: '#ffffff',
+  },
+  cellItemName: {
+    fontSize: 7.8,
+    color: '#334155',
+    fontWeight: '700',
+    flex: 1,
+    marginRight: 2,
+  },
+  cellEarnAmount: {
+    fontSize: 7.8,
+    color: '#047857',
+    fontWeight: '900',
+    flexShrink: 0,
+  },
+  cellDedAmount: {
+    fontSize: 7.8,
+    color: '#be123c',
+    fontWeight: '900',
+    flexShrink: 0,
+  },
+  tableTotalRow: {
+    flexDirection: 'row',
+    borderTopWidth: 1.5,
+    borderTopColor: '#cbd5e1',
+  },
+  tableTotalCellLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    backgroundColor: '#ecfdf5',
+    borderRightWidth: 1,
+    borderRightColor: '#cbd5e1',
+  },
+  tableTotalCellRight: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    backgroundColor: '#fff1f2',
+  },
+  totalLabelEarn: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: '#047857',
+    textTransform: 'uppercase',
+  },
+  totalAmountEarn: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#047857',
+  },
+  totalLabelDed: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: '#be123c',
+    textTransform: 'uppercase',
+  },
+  totalAmountDed: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#be123c',
+  },
+  netPayBanner: {
+    paddingHorizontal: 10,
     paddingVertical: 7,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 2,
   },
-  pdfTableHeaderText: {
+  netPayBannerLabel: {
     color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  pdfTableRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  pdfTableLabel: {
-    fontSize: 11,
-    color: '#334155',
-  },
-  pdfTableAmount: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  pdfSummaryBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    padding: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  pdfSummaryLabel: {
-    fontSize: 9,
-    color: '#64748b',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  pdfSummaryVal: {
-    fontSize: 13,
-    color: '#0f172a',
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  pdfNetBox: {
-    backgroundColor: '#0F172A',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
-  },
-  pdfNetRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  pdfNetLabel: {
-    color: '#94a3b8',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.5,
   },
-  pdfNetVal: {
+  netPayBannerVal: {
     color: '#ffffff',
-    fontSize: 20,
+    fontSize: 12.5,
     fontWeight: '900',
   },
-  pdfWordsRow: {
-    borderTopWidth: 1,
-    borderTopColor: '#334155',
-    paddingTop: 6,
+  disbursalBox: {
+    borderTopWidth: 1.5,
+    backgroundColor: '#f8fafc',
+    padding: 6,
   },
-  pdfWordsText: {
-    color: '#cbd5e1',
-    fontSize: 10,
-    fontStyle: 'italic',
+  disbursalRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingBottom: 5,
   },
-  pdfDisclaimerBox: {
+  disbursalCol: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    paddingHorizontal: 4,
+    borderRightWidth: 1,
+    borderRightColor: '#e2e8f0',
   },
-  pdfDisclaimerText: {
-    fontSize: 9,
+  disbursalLabel: {
+    fontSize: 7.2,
     color: '#64748b',
-    textAlign: 'center',
-    fontWeight: '600',
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
-  pdfDisclaimerSub: {
-    fontSize: 8,
-    color: '#94a3b8',
-    marginTop: 2,
-    textAlign: 'center',
+  disbursalVal: {
+    fontSize: 7.8,
+    color: '#0f172a',
+    fontWeight: '800',
+    marginTop: 1,
+  },
+  amountInWordsRow: {
+    paddingTop: 5,
+  },
+  amountInWordsText: {
+    fontSize: 7.8,
+    color: '#334155',
+    lineHeight: 11,
+  },
+  verifiedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 3,
+  },
+  verifiedText: {
+    fontSize: 7.5,
+    color: '#059669',
+    fontWeight: '700',
+  },
+  footerBox: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 5,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+  },
+  footerImg: {
+    width: '100%',
+    height: 40,
   },
   pdfActionFooter: {
     flexDirection: 'row',
-    padding: 14,
-    backgroundColor: '#f8fafc',
+    padding: 10,
+    backgroundColor: '#ffffff',
     borderTopWidth: 1,
     borderTopColor: '#e2e8f0',
-    gap: 10,
+    gap: 8,
   },
   pdfCloseBtn: {
     flex: 1,
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#cbd5e1',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   pdfCloseBtnText: {
     color: '#475569',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   pdfDownloadBtn: {
     flex: 2,
-    backgroundColor: '#4f46e5',
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
-    borderRadius: 12,
-    paddingVertical: 11,
+    gap: 6,
+    borderRadius: 10,
+    paddingVertical: 9,
   },
   pdfDownloadBtnText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
 });

@@ -695,10 +695,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       combinedEmployees = DEFAULT_COMPANY_EMPLOYEES;
     }
 
-    const companyName = data?.companyName || data?.config?.companyName || currentUser?.companyName;
+    const companyName = data?.companyName || data?.config?.companyName || data?.company?.companyName || currentUser?.companyName;
     setCompanyConfig((prev: any) => ({
       ...(prev || {}),
+      ...(data || {}),
       ...(data?.config || {}),
+      ...(data?.company || {}),
+      ...(data?.settings || {}),
+      ...(data?.branding || {}),
       companyName: companyName || prev?.companyName || 'SWIFT HRMS',
     }));
 
