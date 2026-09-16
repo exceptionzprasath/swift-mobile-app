@@ -163,4 +163,3 @@ export function getDocumentDownloadUrl(tenantId: string, docId: string, employee
   });
   return `${BACKEND_URL}/api/documents/download-pdf?${query.toString()}`;
 }
-
