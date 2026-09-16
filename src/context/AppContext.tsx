@@ -150,6 +150,15 @@ export interface Employee {
     status: "pending" | "approved" | "rejected";
     comment?: string;
   };
+  biometricEnabled?: boolean;
+  biometricMappings?: Array<{
+    id?: string;
+    deviceSn: string;
+    biometricEmpCode: string;
+    deviceName?: string;
+    branchId?: string;
+    notes?: string;
+  }>;
 }
 
 export interface EmployeeDocument {
@@ -358,6 +367,9 @@ export interface GrievanceTicket {
   assignedToName?: string;
   subject: string;
   description: string;
+  fromDate?: string;
+  toDate?: string;
+  incidentDate?: string;
   attachments?: string[];
   status: 'Open' | 'In Progress' | 'Resolved' | 'Rejected';
   resolutionNote?: string;
@@ -401,6 +413,7 @@ export interface UnifiedRequestItem {
   details: string;
   reason?: string;
   notes?: string;
+  attachments?: string[];
   status: 'Pending' | 'Approved' | 'Rejected' | 'Under Review' | 'Resolved' | 'Disbursed';
   priority?: 'Low' | 'Medium' | 'High' | 'Critical';
   currentLevel?: number;
@@ -409,6 +422,10 @@ export interface UnifiedRequestItem {
   escalationDays?: number;
   approvalSteps?: UnifiedRequestStepAudit[];
   metadata?: any;
+  requestId?: string;
+  applicantName?: string;
+  applicantEmpCode?: string;
+  steps?: { title: string; subtitle?: string; status: 'completed' | 'in-progress' | 'pending' }[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -476,6 +493,7 @@ export interface AppContextType {
     details?: string;
     reason?: string;
     notes?: string;
+    attachments?: string[];
     metadata?: any;
   }) => Promise<{ success: boolean; item?: UnifiedRequestItem; error?: string }>;
   actOnUnifiedRequest: (
@@ -488,6 +506,9 @@ export interface AppContextType {
     priority: 'Low' | 'Medium' | 'High' | 'Critical';
     subject: string;
     description: string;
+    fromDate?: string;
+    toDate?: string;
+    incidentDate?: string;
     assignedRole?: string;
     attachments?: string[];
   }) => Promise<boolean>;
@@ -503,6 +524,7 @@ export interface AppContextType {
   signCompanyDocument: (docCode: string, docTitle: string, signatureText: string, signatureDataUrl?: string) => Promise<boolean>;
   deleteEmployeeDocument: (docId: string) => Promise<boolean>;
   registerEmployeeFace: (photoDataUrl: string) => Promise<{ success: boolean; url?: string; error?: string }>;
+  updateEmployeeProfile: (updates: Partial<Employee>) => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -667,11 +689,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (data && data.employees && Array.isArray(data.employees) && data.employees.length > 0) {
       combinedEmployees = [...data.employees];
-      DEFAULT_COMPANY_EMPLOYEES.forEach((def) => {
-        if (!combinedEmployees.some((e: Employee) => e.id === def.id || e.empCode === def.empCode)) {
-          combinedEmployees.push(def);
-        }
-      });
       setEmployees(combinedEmployees);
     } else {
       setEmployees(DEFAULT_COMPANY_EMPLOYEES);
@@ -890,13 +907,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [halfH, halfM] = halfDayLoginTimeStr.split(':').map((x: string) => parseInt(x, 10) || 0);
     const halfDayMins = halfH * 60 + halfM;
 
+    const shiftEndStr = todayRoster?.shiftEnd || currentUser?.shiftEnd || assignedShift?.end || '18:00';
+    const [endH, endM] = shiftEndStr.split(':').map((x: string) => parseInt(x, 10) || 0);
+    const shiftEndMins = endH * 60 + endM;
+
     const currentMins = d.getHours() * 60 + d.getMinutes();
 
     let computedStatus: 'present' | 'absent' | 'late' | 'halfday' | 'holiday' = 'present';
-    let punctualityTag: 'on-time' | 'within-grace' | 'late' | 'half-day' = 'on-time';
+    let punctualityTag: 'on-time' | 'within-grace' | 'late' | 'half-day' | 'invalid_punch' = 'on-time';
     let lateByMinutes: number | undefined = undefined;
 
-    if (currentMins < halfDayMins) {
+    if (currentMins >= shiftEndMins) {
+      // Punched in after shift period has ended (e.g., 9:26 PM for 09:00 - 18:00 shift)
+      computedStatus = 'absent';
+      punctualityTag = 'invalid_punch';
+      lateByMinutes = currentMins - shiftStartMins;
+    } else if (currentMins < halfDayMins) {
       if (currentMins <= morningCutoffMins) {
         computedStatus = 'present';
         punctualityTag = currentMins <= shiftStartMins ? 'on-time' : 'within-grace';
@@ -984,6 +1010,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const checkInTime = existing.checkIn || existing.clockIn || timeStr;
       const hours = calculateHoursWorked(checkInTime, timeStr);
 
+      const todayRoster = (roster || []).find(
+        (r: any) => (r.employeeId === empId || (currentUser?.empCode && r.empCode === currentUser.empCode)) && r.date === localToday
+      );
+
+      const effectiveShiftId = todayRoster?.shiftId || currentUser?.shiftId || 'shift-1';
+      const shiftList = companyConfig?.shifts || [
+        { id: 'shift-1', name: 'General Shift 4.30', start: '09:00', end: '16:30', graceTime: '15' },
+        { id: 'shift-2', name: 'Day Shift 6.00', start: '09:00', end: '18:00', graceTime: '15' },
+      ];
+      const assignedShift = shiftList.find((s: any) => s.id === effectiveShiftId) || shiftList[0] || { start: '09:00', end: '16:30' };
+      const shiftEndStr = todayRoster?.shiftEnd || currentUser?.shiftEnd || assignedShift?.end || '16:30';
+      const [endH, endM] = shiftEndStr.split(':').map((x: string) => parseInt(x, 10) || 0);
+      const shiftEndMins = endH * 60 + endM;
+      const currentMins = d.getHours() * 60 + d.getMinutes();
+      const isEarlyOut = shiftEndMins > 0 && currentMins < shiftEndMins;
+      const earlyOutByMins = isEarlyOut ? shiftEndMins - currentMins : undefined;
+
+      let newStatus = existing.status;
+      if (existing.status === 'absent' || hours < 1.0) {
+        newStatus = 'absent';
+      } else if (isEarlyOut) {
+        newStatus = existing.status === 'late' ? 'absent' : 'halfday';
+      }
+
       updated = {
         ...existing,
         tenantId: existing.tenantId || effectiveTenantId,
@@ -998,6 +1048,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         clockIn: checkInTime,
         hoursWorked: hours,
         otHours: hours > 9 ? Math.round((hours - 9) * 10) / 10 : 0,
+        status: newStatus,
+        isEarlyOut,
+        earlyOutBy: earlyOutByMins,
         checkOutPhoto: photoToSave || existing.checkOutPhoto || undefined,
         photoDataUrl: existing.photoDataUrl || photoToSave || undefined,
       };
@@ -1088,65 +1141,70 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const applyLeave = async (request: Omit<LeaveRequest, 'id' | 'tenantId' | 'employeeId' | 'employeeName' | 'createdAt'>): Promise<boolean> => {
-    // Balance guard against configured permission types and leave types
+    const isLopRequest =
+      request.type?.toLowerCase().includes('lop') || request.type?.toLowerCase().includes('loss');
+
+    // Balance guard against configured permission types and leave types (bypassed for unpaid LOP)
     const permissionTypes: Array<{ name: string; maxHours: number; period: 'month' | 'year' }> =
       (companyConfig as any)?.permissionTypes || [];
     const isPermissionRequest = request.type?.toLowerCase().includes('permission');
 
-    if (isPermissionRequest && permissionTypes.length > 0) {
-      const activePerm = permissionTypes[0];
-      const now = new Date();
-      const period = activePerm.period || 'month';
-      const myPerms = leaves.filter(
-        (l) => l.employeeId === (currentUser?.id || 'demo-emp-1') &&
-               l.status !== 'Rejected' &&
-               l.type?.toLowerCase().includes('permission')
-      );
-      const periodLeaves = myPerms.filter((l) => {
-        const refDate = l.startDate || l.endDate;
-        if (!refDate) return true;
-        const d = new Date(refDate);
-        if (period === 'year') return d.getFullYear() === now.getFullYear();
-        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-      });
-      const usedHrs = periodLeaves.reduce((s, l) => s + (parseFloat(l.days) || 1), 0);
-      const requestedHrs = parseFloat(request.days) || 1;
-      if (usedHrs + requestedHrs > activePerm.maxHours) {
-        return false;
-      }
-    } else {
-      const leaveTypes: Array<{ name: string; days?: number; permissionHours?: number; permissionPeriod?: string }> =
-        (companyConfig as any)?.leaveTypes || [];
-      const matchedType = leaveTypes.find((lt) =>
-        request.type?.toLowerCase().includes(lt.name?.toLowerCase().split(' ')[0] || '')
-      );
-      if (matchedType) {
+    if (!isLopRequest) {
+      if (isPermissionRequest && permissionTypes.length > 0) {
+        const activePerm = permissionTypes[0];
         const now = new Date();
-        const myLeaves = leaves.filter(
+        const period = activePerm.period || 'month';
+        const myPerms = leaves.filter(
           (l) => l.employeeId === (currentUser?.id || 'demo-emp-1') &&
                  l.status !== 'Rejected' &&
-                 l.type?.toLowerCase().includes(matchedType.name?.toLowerCase().split(' ')[0] || '')
+                 l.type?.toLowerCase().includes('permission')
         );
-        if (matchedType.permissionHours) {
-          // Permission-type fallback: filter by period (month or year)
-          const period = matchedType.permissionPeriod || 'month';
-          const periodLeaves = myLeaves.filter((l) => {
-            const refDate = l.startDate || l.endDate;
-            if (!refDate) return true;
-            const d = new Date(refDate);
-            if (period === 'year') return d.getFullYear() === now.getFullYear();
-            return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-          });
-          const usedHrs = periodLeaves.reduce((s, l) => s + (parseFloat(l.days) || 1), 0);
-          const requestedHrs = parseFloat(request.days) || 1;
-          if (usedHrs + requestedHrs > matchedType.permissionHours) {
-            return false; // Caller (LeavesScreen) already shows alert via handleSubmit guard
-          }
-        } else if (matchedType.days) {
-          const usedDays = myLeaves.reduce((s, l) => s + (parseFloat(l.days) || 1), 0);
-          const requestedDays = parseFloat(request.days) || 1;
-          if (usedDays + requestedDays > matchedType.days) {
-            return false;
+        const periodLeaves = myPerms.filter((l) => {
+          const refDate = l.startDate || l.endDate;
+          if (!refDate) return true;
+          const d = new Date(refDate);
+          if (period === 'year') return d.getFullYear() === now.getFullYear();
+          return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+        });
+        const usedHrs = periodLeaves.reduce((s, l) => s + (parseFloat(l.days) || 1), 0);
+        const requestedHrs = parseFloat(request.days) || 1;
+        if (usedHrs + requestedHrs > activePerm.maxHours) {
+          return false;
+        }
+      } else {
+        const leaveTypes: Array<{ name: string; days?: number; permissionHours?: number; permissionPeriod?: string }> =
+          (companyConfig as any)?.leaveTypes || [];
+        const matchedType = leaveTypes.find((lt) =>
+          request.type?.toLowerCase().includes(lt.name?.toLowerCase().split(' ')[0] || '')
+        );
+        if (matchedType) {
+          const now = new Date();
+          const myLeaves = leaves.filter(
+            (l) => l.employeeId === (currentUser?.id || 'demo-emp-1') &&
+                   l.status !== 'Rejected' &&
+                   l.type?.toLowerCase().includes(matchedType.name?.toLowerCase().split(' ')[0] || '')
+          );
+          if (matchedType.permissionHours) {
+            // Permission-type fallback: filter by period (month or year)
+            const period = matchedType.permissionPeriod || 'month';
+            const periodLeaves = myLeaves.filter((l) => {
+              const refDate = l.startDate || l.endDate;
+              if (!refDate) return true;
+              const d = new Date(refDate);
+              if (period === 'year') return d.getFullYear() === now.getFullYear();
+              return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+            });
+            const usedHrs = periodLeaves.reduce((s, l) => s + (parseFloat(l.days) || 1), 0);
+            const requestedHrs = parseFloat(request.days) || 1;
+            if (usedHrs + requestedHrs > matchedType.permissionHours) {
+              return false; // Caller (LeavesScreen) already shows alert via handleSubmit guard
+            }
+          } else if (matchedType.days) {
+            const usedDays = myLeaves.reduce((s, l) => s + (parseFloat(l.days) || 1), 0);
+            const requestedDays = parseFloat(request.days) || 1;
+            if (usedDays + requestedDays > matchedType.days) {
+              return false;
+            }
           }
         }
       }
@@ -1161,28 +1219,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       (e) => e.department?.toLowerCase().includes('hr') || e.designation?.toLowerCase().includes('hr')
     );
 
-    const defaultApprovalSteps: LeaveApprovalStepAudit[] = [
-      {
-        level: 1,
-        roleName: 'Reporting Manager (TL)',
-        approverId: reportingManager?.id,
-        approverName: reportingManager?.name || 'Reporting Manager',
+    // Resolve configured workflow steps from approval settings if configured
+    const attWorkflows: any[] = (companyConfig as any)?.approvalWorkflows?.attendance || [];
+    const matchedWorkflow = attWorkflows.find((w) => {
+      const wName = (w.name || '').toLowerCase();
+      const wId = (w.id || '').toLowerCase();
+      if (isLopRequest) return wName.includes('lop') || wId.includes('lop') || wName.includes('loss');
+      if (isPermissionRequest) return wName.includes('short') || wName.includes('permission') || wId.includes('short');
+      return wName.includes('leave') || wId.includes('leave');
+    });
+
+    let approvalSteps: LeaveApprovalStepAudit[] = [];
+    if (matchedWorkflow?.manualSteps && matchedWorkflow.manualSteps.length > 0) {
+      approvalSteps = matchedWorkflow.manualSteps.map((step: any, idx: number) => ({
+        level: idx + 1,
+        roleName: step.name || step.role || `Level ${idx + 1} Approver`,
+        approverId: step.approverId || (idx === 0 ? reportingManager?.id : hrManager?.id),
+        approverName: step.name || (idx === 0 ? reportingManager?.name || 'Reporting Manager' : 'HR Manager'),
         status: 'Pending',
-      },
-      {
-        level: 2,
-        roleName: 'Department Manager',
-        approverName: 'Department Head',
-        status: 'Pending',
-      },
-      {
-        level: 3,
-        roleName: 'HR Manager',
-        approverId: hrManager?.id,
-        approverName: hrManager?.name || 'HR Manager',
-        status: 'Pending',
-      },
-    ];
+      }));
+    } else {
+      approvalSteps = [
+        {
+          level: 1,
+          roleName: 'Reporting Manager (TL)',
+          approverId: reportingManager?.id,
+          approverName: reportingManager?.name || 'Reporting Manager',
+          status: 'Pending',
+        },
+        {
+          level: 2,
+          roleName: 'Department Manager',
+          approverName: 'Department Head',
+          status: 'Pending',
+        },
+        {
+          level: 3,
+          roleName: 'HR Manager',
+          approverId: hrManager?.id,
+          approverName: hrManager?.name || 'HR Manager',
+          status: 'Pending',
+        },
+      ];
+    }
 
     const newLeave: LeaveRequest = {
       ...request,
@@ -1192,8 +1271,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       employeeName: currentUser?.name || 'Employee',
       createdAt: new Date().toISOString(),
       currentLevel: 1,
-      totalLevels: 3,
-      approvalSteps: defaultApprovalSteps,
+      totalLevels: approvalSteps.length,
+      approvalSteps,
     };
 
     setLeaves((prev) => [newLeave, ...prev]);
@@ -1206,6 +1285,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     priority: 'Low' | 'Medium' | 'High' | 'Critical';
     subject: string;
     description: string;
+    fromDate?: string;
+    toDate?: string;
+    incidentDate?: string;
     assignedRole?: string;
     attachments?: string[];
   }): Promise<boolean> => {
@@ -1224,6 +1306,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         assignedRole: ticket.assignedRole || 'HR Manager',
         subject: ticket.subject,
         description: ticket.description,
+        fromDate: ticket.fromDate,
+        toDate: ticket.toDate,
+        incidentDate: ticket.incidentDate || ticket.fromDate,
         attachments: ticket.attachments || [],
         status: 'Open',
         thread: [
@@ -1804,6 +1889,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateEmployeeProfile = async (updates: Partial<Employee>): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      const effectiveTenant = currentUser.tenantId || tenantId || 'demo-tenant-1';
+      const updatedUser: Employee = {
+        ...currentUser,
+        ...updates,
+      };
+      setCurrentUser(updatedUser);
+      AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser)).catch(() => {});
+      setEmployees((prev) => prev.map((e) => (e.id === currentUser.id ? updatedUser : e)));
+      await mutateTable('employees', { tenantId: effectiveTenant, ...updatedUser });
+      return true;
+    } catch (e: any) {
+      console.warn('updateEmployeeProfile error:', e?.message || e);
+      return false;
+    }
+  };
+
   const d = new Date();
   const localToday = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const utcToday = d.toISOString().split('T')[0];
@@ -1829,6 +1933,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     details?: string;
     reason?: string;
     notes?: string;
+    attachments?: string[];
     metadata?: any;
   }): Promise<{ success: boolean; item?: UnifiedRequestItem; error?: string }> => {
     try {
@@ -1872,10 +1977,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         date: params.date || new Date().toISOString().slice(0, 10),
         details: params.details || params.reason || '',
         reason: params.reason || params.details || '',
-        notes: params.notes,
+        attachments: params.attachments || (Array.isArray(params.metadata?.attachments) ? params.metadata.attachments : []),
         status: 'Pending',
         currentLevel: 1,
-        totalLevels: 2,
+        totalLevels: (params.category === 'profile' || (params as any).category === 'profile_update') ? 1 : 2,
         approvalType: 'sequential',
         metadata: params.metadata || {},
         createdAt: new Date().toISOString(),
@@ -1972,6 +2077,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         signCompanyDocument,
         deleteEmployeeDocument,
         registerEmployeeFace,
+        updateEmployeeProfile,
       }}
     >
       {children}

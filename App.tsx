@@ -4,6 +4,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemeColors, getThemeForPalette, getPaletteById } from './src/theme/colors';
+import { getFCMToken, setupNotificationListeners } from './src/services/notificationService';
 
 import { AppProvider, useAppContext, canRoleApproveDocInApp } from './src/context/AppContext';
 import { SplashView } from './src/components/SplashView';
@@ -21,6 +22,7 @@ import { HolidaysScreen } from './src/screens/HolidaysScreen';
 import { DocumentsScreen } from './src/screens/DocumentsScreen';
 import { TasksScreen } from './src/screens/TasksScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
+import { TeamChatScreen } from './src/screens/TeamChatScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { GrievanceScreen } from './src/screens/GrievanceScreen';
 import { RequestsScreen } from './src/screens/RequestsScreen';
@@ -28,13 +30,14 @@ import { RequestsScreen } from './src/screens/RequestsScreen';
 const THEME_PALETTE_KEY = '@swift_theme_palette';
 const DARK_MODE_KEY = '@swift_dark_mode';
 
-export type AppNavTab = TabType | 'notifications' | 'holidays' | 'documents' | 'tasks' | 'chat' | 'profile' | 'grievance' | 'requests';
+export type AppNavTab = TabType | 'notifications' | 'holidays' | 'documents' | 'tasks' | 'chat' | 'team-chat' | 'profile' | 'grievance' | 'requests';
 
 function MainAppContent() {
   const [showSplash, setShowSplash] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false); // Light theme default
   const [selectedPaletteId, setSelectedPaletteId] = useState<string>('bio_lime'); // Bio Lime default (reference dashboard theme)
   const [activeTab, setActiveTab] = useState<AppNavTab>('home');
+  const [profileInitialTab, setProfileInitialTab] = useState<any>(undefined);
   const [isSideDrawerOpen, setIsSideDrawerOpen] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
@@ -63,6 +66,26 @@ function MainAppContent() {
   }, []);
 
   const { isLoggedIn, currentUser, companyConfig, login, logout, docRequests, userRole } = useAppContext();
+
+  // Initialize Firebase push notification listener
+  useEffect(() => {
+    getFCMToken(currentUser?.id || currentUser?.empCode);
+
+    const cleanup = setupNotificationListeners(
+      (remoteMessage) => {
+        console.log('[FCM] Foreground push message received:', remoteMessage);
+      },
+      (remoteMessage) => {
+        console.log('[FCM] Push message tapped by user:', remoteMessage);
+        setActiveTab('notifications');
+      }
+    );
+
+    return () => {
+      cleanup();
+    };
+  }, [currentUser?.id, currentUser?.empCode]);
+
   const theme: ThemeColors = getThemeForPalette(selectedPaletteId, isDarkMode);
 
   const toggleTheme = () => {
@@ -129,6 +152,8 @@ function MainAppContent() {
         return <TasksScreen theme={theme} />;
       case 'chat':
         return <ChatScreen theme={theme} />;
+      case 'team-chat':
+        return <TeamChatScreen theme={theme} onBack={() => setActiveTab('home')} />;
       case 'requests':
         return <RequestsScreen theme={theme} onNavigate={(tab) => setActiveTab(tab)} />;
       case 'grievance':
@@ -137,6 +162,7 @@ function MainAppContent() {
         return (
           <ProfileScreen
             theme={theme}
+            initialTab={profileInitialTab}
             onToggleTheme={toggleTheme}
             selectedPaletteId={selectedPaletteId}
             onSelectPalette={handleSelectPalette}
@@ -187,8 +213,8 @@ function MainAppContent() {
       {/* Main Body */}
       <View style={[styles.body, { backgroundColor: theme.bg }]}>{renderActiveScreen()}</View>
 
-      {/* Bottom Navigation */}
-      {(!isKeyboardVisible || activeTab !== 'chat') && (
+      {/* Bottom Navigation: Hide completely when entered into chat screen or team-chat, or when keyboard is open */}
+      {!isKeyboardVisible && activeTab !== 'team-chat' && activeTab !== 'chat' && (
         <TabBar
           theme={theme}
           selectedPaletteId={selectedPaletteId}
@@ -210,8 +236,11 @@ function MainAppContent() {
         visible={isSideDrawerOpen}
         theme={theme}
         onClose={() => setIsSideDrawerOpen(false)}
-        onNavigate={(tab) => {
+        onNavigate={(tab, targetTab) => {
           setIsSideDrawerOpen(false);
+          if (tab === 'profile' && targetTab) {
+            setProfileInitialTab(targetTab);
+          }
           setActiveTab(tab);
         }}
         onToggleTheme={toggleTheme}
