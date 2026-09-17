@@ -1,7 +1,7 @@
 // Single clean ngrok backend URL link
-export const BACKEND_URL = 'https://malt-gaming-suction.ngrok-free.dev';
+// export const BACKEND_URL = 'https://malt-gaming-suction.ngrok-free.dev';
 
-// export const BACKEND_URL = 'https://swifthr.shop';
+export const BACKEND_URL = 'https://swifthr.shop';
 
 
 const FETCH_HEADERS = {
@@ -244,7 +244,6 @@ export async function requestCreateGroup(payload: {
     return { success: false, error: err?.message || 'Network connection failed' };
   }
 }
-
 export async function updateTeamGroup(payload: {
   tenantId: string;
   groupId: string;
@@ -353,6 +352,4 @@ export async function askSwiftAIPrivately(payload: {
     };
   }
 }
-
-
 

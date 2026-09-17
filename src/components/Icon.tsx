@@ -29,7 +29,9 @@ export type IconName =
   | 'chevron-down'
   | 'chevron-up'
   | 'send'
-
+  | 'building'
+  | 'credit-card'
+  | 'shield-check'
   | 'sparkles'
   | 'shield'
   | 'calendar'
@@ -58,9 +60,10 @@ interface IconProps {
   name: IconName;
   size?: number;
   color?: string;
+  style?: any;
 }
 
-export function Icon({ name, size = 20, color = '#0f766e' }: IconProps) {
+export function Icon({ name, size = 20, color = '#0f766e', style }: IconProps) {
   // Pure vector shape representations for all UI components
   switch (name) {
     case 'plus':
@@ -424,6 +427,45 @@ export function Icon({ name, size = 20, color = '#0f766e' }: IconProps) {
         <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
           <Text style={{ color, fontSize: size * 0.85, fontWeight: '800' }}>⎋</Text>
         </View>
+      );
+
+    case 'building':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M3 21h18M6 21V5a2 2 0 012-2h8a2 2 0 012 2v16M9 7h1M9 11h1M9 15h1M14 7h1M14 11h1M14 15h1"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      );
+
+    case 'credit-card':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M3 6a2 2 0 012-2h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6zM3 10h18M7 15h3"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      );
+
+    case 'shield-check':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
       );
 
     case 'lock':
