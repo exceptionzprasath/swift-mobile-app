@@ -9,6 +9,7 @@ interface HeaderProps {
   employeeName?: string;
   profilePhoto?: string;
   companyName?: string;
+  faviconUrl?: string;
   unreadCount?: number;
   onNotificationPress: () => void;
   onProfilePress: () => void;
@@ -21,6 +22,7 @@ export function Header({
   employeeName = 'Yuji',
   profilePhoto,
   companyName = 'SWIFT Demo Pvt Ltd',
+  faviconUrl,
   unreadCount = 3,
   onNotificationPress,
   onProfilePress,
@@ -85,13 +87,21 @@ export function Header({
           )}
         </TouchableOpacity>
 
-        {/* SWIFT Brand Logo (Transparent & Enlarged) */}
+        {/* Brand Favicon / Logo */}
         <View style={styles.brandBox}>
-          <Image
-            source={require('../assets/swift-logo.png')}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
+          {faviconUrl ? (
+            <Image
+              source={{ uri: faviconUrl }}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <Image
+              source={require('../assets/swift-logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+          )}
         </View>
       </View>
     </View>
