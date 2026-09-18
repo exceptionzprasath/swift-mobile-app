@@ -204,6 +204,7 @@ function MainAppContent() {
         employeeName={currentUser?.name || 'Alex Mercer'}
         profilePhoto={currentUser?.photoDataUrl}
         companyName={currentUser?.companyName || companyConfig?.companyName || 'SWIFT HRMS'}
+        faviconUrl={companyConfig?.faviconDataUrl || companyConfig?.logoDataUrl}
         unreadCount={totalUnreadNotifications}
         onNotificationPress={() => setActiveTab('notifications')}
         onProfilePress={() => setActiveTab('profile')}

@@ -10,6 +10,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  Dimensions,
+  useWindowDimensions,
+  LayoutChangeEvent,
+  LayoutAnimation,
 } from 'react-native';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
@@ -37,6 +41,25 @@ export function ChatScreen({ theme }: ChatScreenProps) {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
+  const isNearBottomRef = useRef<boolean>(true);
+
+  const [containerHeight, setContainerHeight] = useState(0);
+  const maxContainerHeightRef = useRef<number>(0);
+  const isWindowShrunkRef = useRef(false);
+  const [needsManualAvoidance, setNeedsManualAvoidance] = useState(false);
+
+  const handleContainerLayout = (e: LayoutChangeEvent) => {
+    const h = e.nativeEvent?.layout?.height || 0;
+    if (h > 0) {
+      if (h > maxContainerHeightRef.current) {
+        maxContainerHeightRef.current = h;
+      }
+      setContainerHeight(h);
+      if (maxContainerHeightRef.current > 0 && maxContainerHeightRef.current - h > 80) {
+        isWindowShrunkRef.current = true;
+      }
+    }
+  };
 
   let bottomInset = 0;
   try {
@@ -45,15 +68,14 @@ export function ChatScreen({ theme }: ChatScreenProps) {
   } catch (e) {}
 
   const safeBottomMargin = Math.max(bottomInset, 12) + 14;
-  const tabTabBarHeight = 68;
-  const gapAboveTabBar = 14;
-  const bottomOffsetWhenTabBarVisible = safeBottomMargin + tabTabBarHeight + gapAboveTabBar;
+
+  const androidKeyboardMargin = needsManualAvoidance
+    ? (keyboardHeight > 0 ? keyboardHeight + 14 : 14)
+    : 14;
 
   const currentBottomMargin = isKeyboardVisible
-    ? Platform.OS === 'ios'
-      ? 30
-      : (keyboardHeight > 0 ? keyboardHeight + 30 : 32)
-    : bottomOffsetWhenTabBarVisible;
+    ? (Platform.OS === 'ios' ? 14 : androidKeyboardMargin)
+    : safeBottomMargin;
 
   const userName = currentUser?.name?.split(' ')[0] || 'Employee';
 
@@ -84,7 +106,8 @@ export function ChatScreen({ theme }: ChatScreenProps) {
   const todayStr = new Date().toISOString().split('T')[0];
   const upcomingHols = (holidays || []).filter((h: any) => h.date >= todayStr);
 
-  const initialBotGreeting = `Hello ${userName}! 👋 I am **SWIFT AI**, your intelligent HR & Operations Assistant powered by InkPen.\n\nI can help you with:\n• Checking leave balances & policies\n• Drafting leave & regularization requests\n• Upcoming holidays & payroll schedules\n• General company HR questions\n\nHow can I assist you today?`;
+  const empCodeStr = currentUser?.empCode || currentUser?.id || 'EMP001';
+  const initialBotGreeting = `Hello ${userName} (${empCodeStr})! 👋 I am **SWIFT AI**, your intelligent HR & Operations Assistant powered by InkPen.\n\nI can help you with:\n• Checking leave balances & policies\n• Drafting leave & regularization requests\n• Upcoming holidays & payroll schedules\n• General company HR questions\n\nHow can I assist you today?`;
 
   const chatStorageKey = `@swift_ai_chat_${currentUser?.id || currentUser?.empCode || 'default'}`;
 
@@ -134,6 +157,8 @@ export function ChatScreen({ theme }: ChatScreenProps) {
 
   // Auto scroll and track keyboard visibility & exact height
   useEffect(() => {
+    let checkTimeout: any;
+
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
@@ -141,17 +166,32 @@ export function ChatScreen({ theme }: ChatScreenProps) {
       setIsKeyboardVisible(true);
       const height = e?.endCoordinates?.height || 0;
       setKeyboardHeight(height);
+      isNearBottomRef.current = true;
       setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+        scrollViewRef.current?.scrollToEnd({ animated: false });
+      }, 50);
+
+      if (Platform.OS === 'android') {
+        clearTimeout(checkTimeout);
+        checkTimeout = setTimeout(() => {
+          if (!isWindowShrunkRef.current && height > 0) {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            setNeedsManualAvoidance(true);
+          }
+        }, 150);
+      }
     });
 
     const hideSub = Keyboard.addListener(hideEvent, () => {
+      clearTimeout(checkTimeout);
       setIsKeyboardVisible(false);
       setKeyboardHeight(0);
+      isWindowShrunkRef.current = false;
+      setNeedsManualAvoidance(false);
     });
 
     return () => {
+      clearTimeout(checkTimeout);
       showSub.remove();
       hideSub.remove();
     };
@@ -265,6 +305,7 @@ export function ChatScreen({ theme }: ChatScreenProps) {
       style={[styles.container, { backgroundColor: theme.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      onLayout={handleContainerLayout}
     >
       {/* SWIFT AI Dedicated Header */}
       <View style={[styles.headerCard, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}>
@@ -294,9 +335,25 @@ export function ChatScreen({ theme }: ChatScreenProps) {
       <ScrollView
         ref={scrollViewRef}
         style={styles.chatArea}
-        contentContainerStyle={styles.chatContent}
+        contentContainerStyle={[styles.chatContent, { paddingBottom: 24 }]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        onLayout={() => {
+          if (isNearBottomRef.current) {
+            scrollViewRef.current?.scrollToEnd({ animated: false });
+          }
+        }}
+        onContentSizeChange={() => {
+          if (isNearBottomRef.current) {
+            scrollViewRef.current?.scrollToEnd({ animated: false });
+          }
+        }}
+        onScroll={(e) => {
+          const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+          isNearBottomRef.current =
+            layoutMeasurement.height + contentOffset.y >= contentSize.height - 80;
+        }}
+        scrollEventThrottle={16}
       >
         {aiMessages.map((m) => (
           <View
@@ -365,24 +422,26 @@ export function ChatScreen({ theme }: ChatScreenProps) {
       </ScrollView>
 
       {/* Quick Prompts Carousel */}
-      <View style={styles.promptContainer}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.promptContent}
-        >
-          {quickPrompts.map((p, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={[styles.promptChip, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
-              onPress={() => handleQuickPrompt(p)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.promptText, { color: theme.primary }]}>✨ {p}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+      {!isKeyboardVisible && (
+        <View style={styles.promptContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.promptContent}
+          >
+            {quickPrompts.map((p, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={[styles.promptChip, { backgroundColor: theme.card, borderColor: theme.cardBorder }]}
+                onPress={() => handleQuickPrompt(p)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.promptText, { color: theme.primary }]}>✨ {p}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {/* Input Bar */}
       <View
@@ -402,9 +461,10 @@ export function ChatScreen({ theme }: ChatScreenProps) {
           value={inputText}
           onChangeText={setInputText}
           onFocus={() => {
+            isNearBottomRef.current = true;
             setTimeout(() => {
-              scrollViewRef.current?.scrollToEnd({ animated: true });
-            }, 150);
+              scrollViewRef.current?.scrollToEnd({ animated: false });
+            }, 60);
           }}
           multiline
           maxLength={1000}

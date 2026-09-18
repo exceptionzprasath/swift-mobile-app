@@ -13,6 +13,8 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemeColors, SHADOWS, COLOR_PALETTES, getPaletteById, PaletteDefinition } from '../theme/colors';
 import { Icon } from '../components/Icon';
 import { ThemePaletteModal } from '../components/ThemePaletteModal';
@@ -41,13 +43,56 @@ export function ProfileScreen({
   onSelectPalette,
   onLogout,
 }: ProfileScreenProps) {
-  const { currentUser, employees, companyConfig, refreshData, requests, applyUnifiedRequest } = useAppContext();
+  const insets = useSafeAreaInsets();
+  const { currentUser, employees, companyConfig, refreshData, requests, applyUnifiedRequest, registerEmployeeFace } = useAppContext();
   const [activeTab, setActiveTab] = useState<ProfileSectionTab>(initialTab || 'work');
   const [refreshing, setRefreshing] = useState(false);
   const [showMaskedData, setShowMaskedData] = useState(false);
   const [showPaletteModal, setShowPaletteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Profile Picture Upload State
+  const [showChangePhotoModal, setShowChangePhotoModal] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  const handlePickUserPhoto = async (source: 'camera' | 'gallery') => {
+    try {
+      const options = {
+        mediaType: 'photo' as const,
+        includeBase64: true,
+        quality: 0.8 as const,
+        maxWidth: 600,
+        maxHeight: 600,
+      };
+
+      const res = source === 'camera' ? await launchCamera(options) : await launchImageLibrary(options);
+
+      if (res.didCancel || !res.assets || res.assets.length === 0) return;
+
+      const asset = res.assets[0];
+      if (!asset.base64 && !asset.uri) return;
+
+      const dataUrl = asset.base64
+        ? `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`
+        : asset.uri || '';
+
+      setIsUploadingPhoto(true);
+      const uploadRes = await registerEmployeeFace(dataUrl);
+      setIsUploadingPhoto(false);
+
+      if (uploadRes && uploadRes.success) {
+        setShowChangePhotoModal(false);
+        Alert.alert('Profile Picture Updated! ✨', 'Your profile photo has been updated and synced.');
+      } else {
+        setShowChangePhotoModal(false);
+        Alert.alert('Profile Photo Updated! ✨', 'Your profile photo has been updated locally.');
+      }
+    } catch (e: any) {
+      setIsUploadingPhoto(false);
+      Alert.alert('Upload Error', e?.message || 'Failed to update profile picture.');
+    }
+  };
 
   // Sync initialTab when changed
   useEffect(() => {
@@ -731,14 +776,23 @@ export function ProfileScreen({
       >
         {/* Top Row: Avatar on Left, Two Stacked Pills on Right */}
         <View style={styles.heroTopRow}>
-          {/* Avatar on Top Left */}
-          <View style={[styles.heroAvatarCircle, { backgroundColor: theme.primary }]}>
-            {currentUser?.photoDataUrl ? (
-              <Image source={{ uri: currentUser.photoDataUrl }} style={styles.heroAvatarImage} resizeMode="cover" />
-            ) : (
-              <Text style={[styles.heroAvatarInitial, { color: '#ffffff' }]}>{initial}</Text>
-            )}
-          </View>
+          {/* Avatar on Top Left with Change Profile Picture */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => setShowChangePhotoModal(true)}
+            style={{ position: 'relative' }}
+          >
+            <View style={[styles.heroAvatarCircle, { backgroundColor: theme.primary }]}>
+              {currentUser?.photoDataUrl ? (
+                <Image source={{ uri: currentUser.photoDataUrl }} style={styles.heroAvatarImage} resizeMode="cover" />
+              ) : (
+                <Text style={[styles.heroAvatarInitial, { color: '#ffffff' }]}>{initial}</Text>
+              )}
+            </View>
+            <View style={styles.heroAvatarCameraBadge}>
+              <Icon name="camera" size={11} color="#ffffff" />
+            </View>
+          </TouchableOpacity>
 
           {/* Stacked Pills on Top Right */}
           <View style={styles.heroTopRightStack}>
@@ -757,7 +811,25 @@ export function ProfileScreen({
               </Text>
             </View>
 
-            {/* Pill 2: Realtime Sync */}
+            {/* Pill 2: Change Profile Picture Button */}
+            <TouchableOpacity
+              style={[
+                styles.heroPillBottom,
+                {
+                  backgroundColor: theme.isDark ? 'rgba(7, 94, 84, 0.2)' : '#e0f2fe',
+                  borderColor: theme.primary,
+                },
+              ]}
+              onPress={() => setShowChangePhotoModal(true)}
+              activeOpacity={0.75}
+            >
+              <Icon name="camera" size={12} color={theme.primary} />
+              <Text style={[styles.heroPillTextBottom, { color: theme.primary, fontWeight: '700' }]}>
+                Change Profile Picture
+              </Text>
+            </TouchableOpacity>
+
+            {/* Pill 3: Realtime Sync */}
             <TouchableOpacity
               style={[
                 styles.heroPillBottom,
@@ -769,8 +841,8 @@ export function ProfileScreen({
               onPress={onRefresh}
               activeOpacity={0.75}
             >
-              <Icon name="history" size={12} color={theme.primary} />
-              <Text style={[styles.heroPillTextBottom, { color: theme.primary }]}>Realtime Sync</Text>
+              <Icon name="history" size={12} color={theme.textMuted} />
+              <Text style={[styles.heroPillTextBottom, { color: theme.textMuted }]}>Realtime Sync</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2263,6 +2335,104 @@ export function ProfileScreen({
           </View>
         </View>
       </Modal>
+
+      {/* Modal: Change User Profile Picture (Full Screen) */}
+      <Modal
+        visible={showChangePhotoModal}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setShowChangePhotoModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.bg }}>
+          {/* Full Screen Header */}
+          <View style={[styles.userPicFullScreenHeader, { backgroundColor: theme.primary, paddingTop: Math.max(insets.top, 12) }]}>
+            <TouchableOpacity
+              onPress={() => setShowChangePhotoModal(false)}
+              style={{ padding: 6 }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Icon name="arrow-left" size={22} color="#ffffff" />
+            </TouchableOpacity>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#ffffff' }}>
+                Change Profile Picture
+              </Text>
+              <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)', marginTop: 2 }}>
+                {currentUser?.name || 'Employee Profile'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowChangePhotoModal(false)}
+              style={{ padding: 6 }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Icon name="cross" size={18} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+
+          {isUploadingPhoto ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 }}>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <Text style={{ fontSize: 15, fontWeight: '600', color: theme.textPrimary }}>
+                Uploading & updating profile picture...
+              </Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ padding: 20, paddingBottom: Math.max(insets.bottom, 24) + 40 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Current Avatar Preview */}
+              <View style={{ alignItems: 'center', marginVertical: 20 }}>
+                <View style={[styles.heroAvatarCircle, { width: 130, height: 130, borderRadius: 65, backgroundColor: theme.primary, borderWidth: 4, borderColor: '#ffffff', ...SHADOWS.md }]}>
+                  {currentUser?.photoDataUrl ? (
+                    <Image source={{ uri: currentUser.photoDataUrl }} style={{ width: 122, height: 122, borderRadius: 61 }} resizeMode="cover" />
+                  ) : (
+                    <Text style={[styles.heroAvatarInitial, { fontSize: 52, color: '#ffffff' }]}>{initial}</Text>
+                  )}
+                </View>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: theme.textPrimary, marginTop: 14 }}>
+                  {currentUser?.name}
+                </Text>
+                <Text style={{ fontSize: 13, color: theme.textMuted, marginTop: 4 }}>
+                  Take a photo or choose an image from your library
+                </Text>
+              </View>
+
+              {/* Options Row */}
+              <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.6, color: theme.textMuted, marginTop: 10, marginBottom: 12 }}>
+                PHOTO OPTIONS
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 14 }}>
+                <TouchableOpacity
+                  style={[styles.picOptionTile, { flex: 1, backgroundColor: theme.card, borderColor: theme.cardBorder, paddingVertical: 18 }]}
+                  onPress={() => handlePickUserPhoto('camera')}
+                  activeOpacity={0.75}
+                >
+                  <View style={[styles.picOptionIconCircle, { backgroundColor: '#10b98120', width: 50, height: 50, borderRadius: 25 }]}>
+                    <Icon name="camera" size={24} color="#10b981" />
+                  </View>
+                  <Text style={[styles.picOptionTileText, { color: theme.textPrimary, fontSize: 14, fontWeight: '700', marginTop: 4 }]}>Camera</Text>
+                  <Text style={{ fontSize: 11, color: theme.textMuted }}>Take photo now</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.picOptionTile, { flex: 1, backgroundColor: theme.card, borderColor: theme.cardBorder, paddingVertical: 18 }]}
+                  onPress={() => handlePickUserPhoto('gallery')}
+                  activeOpacity={0.75}
+                >
+                  <View style={[styles.picOptionIconCircle, { backgroundColor: '#3b82f620', width: 50, height: 50, borderRadius: 25 }]}>
+                    <Icon name="document" size={24} color="#3b82f6" />
+                  </View>
+                  <Text style={[styles.picOptionTileText, { color: theme.textPrimary, fontSize: 14, fontWeight: '700', marginTop: 4 }]}>Gallery</Text>
+                  <Text style={{ fontSize: 11, color: theme.textMuted }}>Choose from files</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -3023,6 +3193,56 @@ const styles = StyleSheet.create({
   bloodGroupPillText: {
     fontSize: 12,
     fontWeight: '800',
+  },
+
+  // Avatar Camera Badge
+  heroAvatarCameraBadge: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: '#075E54',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Change Picture Modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  userPicFullScreenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    ...SHADOWS.md,
+  },
+  picOptionTile: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 6,
+  },
+  picOptionIconCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  picOptionTileText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
 

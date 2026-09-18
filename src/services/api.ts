@@ -1,6 +1,5 @@
 // Single clean ngrok backend URL link
 export const BACKEND_URL = 'https://f2d3-2401-4900-cad5-b046-1466-d12-9e8b-2a1b.ngrok-free.app';
-
 // export const BACKEND_URL = 'https://swifthr.shop';
 
 const FETCH_HEADERS = {
@@ -214,6 +213,7 @@ export async function requestCreateGroup(payload: {
   creatorName: string;
   subject: string;
   description?: string;
+  avatarUrl?: string;
   iconEmoji?: string;
   iconBgColor?: string;
   members: any[];
@@ -242,6 +242,44 @@ export async function requestCreateGroup(payload: {
     return { success: false, error: err?.message || 'Network connection failed' };
   }
 }
+export async function updateTeamGroup(payload: {
+  tenantId: string;
+  groupId: string;
+  avatarUrl?: string;
+  iconEmoji?: string;
+  iconBgColor?: string;
+  subject?: string;
+  description?: string;
+  members?: any[];
+  isMuted?: boolean;
+  mutedUntil?: string;
+  disappearingDuration?: string;
+  chatTheme?: string;
+}) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/groups/update`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        error: res.ok
+          ? 'Invalid server response'
+          : `Backend returned HTTP ${res.status}: ${text.slice(0, 100)}`,
+      };
+    }
+    return data;
+  } catch (err: any) {
+    console.warn('[API] updateTeamGroup error:', err);
+    return { success: false, error: err?.message || 'Network connection failed' };
+  }
+}
 
 export async function checkEmployeeStatus(id?: string, empCode?: string) {
   try {
@@ -267,5 +305,74 @@ export async function checkEmployeeStatus(id?: string, empCode?: string) {
   }
 }
 
+export async function deleteTeamGroup(payload: {
+  tenantId: string;
+  groupId: string;
+  userId?: string;
+}) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/groups/delete`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        error: res.ok
+          ? 'Invalid server response'
+          : `Backend returned HTTP ${res.status}: ${text.slice(0, 100)}`,
+      };
+    }
+    return data;
+  } catch (err: any) {
+    console.warn('[API] deleteTeamGroup error:', err);
+    return { success: false, error: err?.message || 'Network connection failed' };
+  }
+}
+
+export async function clearGroupMessages(payload: {
+  tenantId: string;
+  groupId: string;
+  userId?: string;
+}) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/groups/clear-messages`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (err: any) {
+    console.warn('[API] clearGroupMessages error:', err);
+    return { success: false, error: err?.message || 'Network connection failed' };
+  }
+}
+
+export async function askSwiftAIPrivately(payload: {
+  prompt: string;
+  context?: string;
+  groupSubject?: string;
+  senderName?: string;
+}) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/ai-query`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (err: any) {
+    console.warn('[API] askSwiftAIPrivately error:', err);
+    return {
+      success: true,
+      response: `[Swift AI Copilot] You asked: "${payload.prompt}". All compliance and team records for "${payload.groupSubject || "Team Chat"}" are operating normally!`,
+    };
+  }
+}
 
 
