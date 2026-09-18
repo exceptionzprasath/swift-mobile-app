@@ -1,6 +1,6 @@
 // Single clean ngrok backend URL link
-export const BACKEND_URL = 'https://f2d3-2401-4900-cad5-b046-1466-d12-9e8b-2a1b.ngrok-free.app';
-// export const BACKEND_URL = 'https://swifthr.shop';
+// export const BACKEND_URL = 'https://f2d3-2401-4900-cad5-b046-1466-d12-9e8b-2a1b.ngrok-free.app';
+export const BACKEND_URL = 'https://swifthr.shop';
 
 const FETCH_HEADERS = {
   'Content-Type': 'application/json',
