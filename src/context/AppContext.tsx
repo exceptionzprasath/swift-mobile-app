@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { AppState, AppStateStatus, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchInitialState, mutateTable, verifyFace, registerFace, uploadFile, BACKEND_URL } from '../services/api';
+import { fetchInitialState, mutateTable, verifyFace, registerFace, uploadFile, checkEmployeeStatus, BACKEND_URL } from '../services/api';
 
 const AUTH_USER_KEY = '@swift_auth_user';
 const AUTH_TENANT_KEY = '@swift_tenant_id';
@@ -649,6 +650,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [companyConfig, setCompanyConfig] = useState<any>(null);
 
+  const logout = async () => {
+    try {
+      await Promise.all([
+        AsyncStorage.removeItem(AUTH_USER_KEY),
+        AsyncStorage.removeItem(AUTH_TENANT_KEY),
+      ]);
+    } catch (storageErr) {
+      console.warn('[Storage] Failed to clear login session:', storageErr);
+    }
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    setTenantId('demo-tenant-1');
+  };
+
   // Restore persisted user session on app launch
   useEffect(() => {
     const restoreSession = async () => {
@@ -660,6 +675,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         if (savedUserJson) {
           const parsedUser: Employee = JSON.parse(savedUserJson);
+          const rawStatus = String(parsedUser.status || 'active').toLowerCase().trim();
+          if (rawStatus !== 'active') {
+            console.warn('[Session] Local employee status is', rawStatus, '- clearing session');
+            await logout();
+            return;
+          }
           setCurrentUser(parsedUser);
           const tId = savedTenant || parsedUser.tenantId || 'demo-tenant-1';
           setTenantId(tId);
@@ -671,6 +692,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               companyName: parsedUser.companyName,
             }));
           }
+
+          // Remote status check on launch
+          checkEmployeeStatus(parsedUser.id, parsedUser.empCode).then((res) => {
+            if (res && res.exists && !res.active) {
+              console.warn('[Session] Remote employee status is', res.status, '- auto logging out');
+              logout();
+              Alert.alert(
+                'Session Terminated',
+                `Your account has been marked as ${res.displayStatus || res.status}. You have been logged out. Please contact HR.`
+              );
+            }
+          }).catch(() => {});
         }
       } catch (err) {
         console.warn('[Session] Failed to restore auth session:', err);
@@ -684,7 +717,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const refreshData = async () => {
     setLoading(true);
-    const data = await fetchInitialState(tenantId);
+    const effectiveTenantId = currentUser?.tenantId || tenantId || 'demo-tenant-1';
+    const data = await fetchInitialState(effectiveTenantId);
     let combinedEmployees: Employee[] = [];
 
     if (data && data.employees && Array.isArray(data.employees) && data.employees.length > 0) {
@@ -713,6 +747,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         (e: Employee) => e.id === prev.id || (e.empCode && e.empCode === prev.empCode)
       );
       if (freshUser) {
+        const rawStatus = String(freshUser.status || 'active').toLowerCase().trim();
+        if (rawStatus !== 'active') {
+          console.warn('[Session] Employee status is now', rawStatus, '- logging out');
+          logout();
+          const displayStatus = rawStatus === 'relieved' || rawStatus === 'releived' ? 'Releived' : (freshUser.status || 'Inactive');
+          Alert.alert(
+            'Session Terminated',
+            `Your account has been marked as ${displayStatus}. You have been logged out. Please contact HR.`
+          );
+          return null;
+        }
         const updated = {
           ...prev,
           ...freshUser,
@@ -747,6 +792,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshData();
   }, [tenantId]);
 
+  // Check employee active status every time the app comes into the foreground
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+        if (currentUser) {
+          checkEmployeeStatus(currentUser.id, currentUser.empCode).then((res) => {
+            if (res && res.exists && !res.active) {
+              console.warn('[AppState] Employee status is', res.status, '- auto logging out');
+              logout();
+              Alert.alert(
+                'Session Terminated',
+                `Your account has been marked as ${res.displayStatus || res.status}. You have been logged out. Please contact HR.`
+              );
+            }
+          }).catch(() => {});
+        }
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [currentUser]);
+
   const login = async (empCodeOrEmail: string, pass: string): Promise<boolean> => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/employee/login`, {
@@ -758,13 +829,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ empCode: empCodeOrEmail, password: pass }),
       });
 
+      const data = await res.json().catch(() => null);
+
       if (!res.ok) {
+        if (data && data.error) {
+          throw new Error(data.error);
+        }
         return false;
       }
 
-      const data = await res.json();
       if (data && data.success && data.employee) {
         const found = data.employee;
+        const empStatus = String(found.status || 'active').toLowerCase().trim();
+        if (empStatus !== 'active') {
+          const displayStatus = empStatus === 'relieved' || empStatus === 'releived' ? 'Releived' : (found.status || 'Inactive');
+          throw new Error(`Your account is ${displayStatus}. You are not permitted to log in. Please contact HR.`);
+        }
         const employeeTenantId = data.tenantId || 'demo-tenant-1';
         
         setTenantId(employeeTenantId);
@@ -812,22 +892,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err: any) {
       console.warn('[API] Login error:', err?.message || err);
+      throw err;
     }
     return false;
-  };
-
-  const logout = async () => {
-    try {
-      await Promise.all([
-        AsyncStorage.removeItem(AUTH_USER_KEY),
-        AsyncStorage.removeItem(AUTH_TENANT_KEY),
-      ]);
-    } catch (storageErr) {
-      console.warn('[Storage] Failed to clear login session:', storageErr);
-    }
-    setIsLoggedIn(false);
-    setCurrentUser(null);
-    setTenantId('demo-tenant-1');
   };
 
   // Helper to compute hours worked

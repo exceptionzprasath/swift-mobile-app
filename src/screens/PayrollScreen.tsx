@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,47 @@ import { generatePayslipHtml, utf8ToBase64 } from '../services/pdfService';
 
 interface PayrollScreenProps {
   theme: ThemeColors;
+}
+
+export function isMatchEmployee(p: any, user: any, empList: any[] = []): boolean {
+  if (!p || !user) return false;
+  const pEmpId = String(p.employeeId || '').trim().toLowerCase();
+  const pCode = String(p.empCode || '').trim().toLowerCase();
+  const pName = String(p.employeeName || '').trim().toLowerCase();
+
+  const uId = String(user.id || '').trim().toLowerCase();
+  const uCode = String(user.empCode || user.code || '').trim().toLowerCase();
+  const uName = String(user.name || '').trim().toLowerCase();
+
+  if (pEmpId && (pEmpId === uId || pEmpId === uCode)) return true;
+  if (pCode && (pCode === uCode || pCode === uId)) return true;
+  if (pName && uName && pName === uName) return true;
+
+  if (Array.isArray(empList) && pEmpId) {
+    const matchedFromList = empList.find(
+      (e) =>
+        String(e.id || '').toLowerCase() === pEmpId ||
+        String(e.empCode || e.code || '').toLowerCase() === pEmpId
+    );
+    if (matchedFromList) {
+      const mId = String(matchedFromList.id || '').toLowerCase();
+      const mCode = String(matchedFromList.empCode || matchedFromList.code || '').toLowerCase();
+      const mName = String(matchedFromList.name || '').toLowerCase();
+      if (mId === uId || mCode === uCode || (mName && mName === uName)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export function matchMonth(prMonth: string, targetKey: string, targetLabel: string): boolean {
+  if (!prMonth) return false;
+  if (prMonth === targetKey || prMonth === targetLabel) return true;
+  const normPr = prMonth.replace('-0', '-');
+  const normKey = targetKey.replace('-0', '-');
+  return normPr === normKey;
 }
 
 /** Convert numbers to Indian English Words (e.g. 31000 -> Rupees Thirty-One Thousand Only) */
@@ -90,7 +131,7 @@ export function formatInr(amount: number): string {
 }
 
 export function PayrollScreen({ theme }: PayrollScreenProps) {
-  const { currentUser, attendance, payrolls, companyConfig, requests, holidays, docLibrary, refreshData } = useAppContext();
+  const { currentUser, employees, attendance, payrolls, companyConfig, requests, holidays, docLibrary, refreshData } = useAppContext();
   const [refreshing, setRefreshing] = useState(false);
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
@@ -99,6 +140,11 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
   const [segmentedWidth, setSegmentedWidth] = useState(0);
   const tabSlideAnim = useRef(new Animated.Value(0)).current;
   const tabFadeAnim = useRef(new Animated.Value(1)).current;
+
+  // Auto-fetch the latest state on mount so any admin edits reflect immediately
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
 
   const handleSwitchTab = (tab: 'earnings' | 'deductions') => {
     if (tab === breakdownTab) return;
@@ -152,22 +198,46 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
     if (!payrolls || !Array.isArray(payrolls)) return null;
     return payrolls.find(
       (p: any) =>
-        (p.employeeId === currentUser?.id || p.employeeId === currentUser?.empCode) &&
-        (p.month === selectedMonthObj.key || p.month === selectedMonthObj.label)
+        isMatchEmployee(p, currentUser, employees) &&
+        matchMonth(p.month, selectedMonthObj.key, selectedMonthObj.label)
     );
-  }, [payrolls, currentUser, selectedMonthObj]);
+  }, [payrolls, currentUser, employees, selectedMonthObj]);
 
-  // Calculate real-time payroll computation matching swift-admin-company logic with dynamic Loan EMI
+  // Calculate real-time payroll computation matching swift-admin-company logic with dynamic Loan EMI & deductions
   const payrollComputation = useMemo(() => {
     if (processedPayroll && processedPayroll.computed) {
+      const comp = processedPayroll.computed;
+      const rawDed = comp.deductions || {};
+      const loanEmi = Number(rawDed.loan || rawDed.loanEmi || processedPayroll.loan || 0);
+      const advance = Number(rawDed.advance || processedPayroll.advance || 0);
+      const lwf = Number(rawDed.lwf || 0);
+      const employeePF = Number(rawDed.employeePF || 0);
+      const employeeESI = Number(rawDed.employeeESI || 0);
+      const professionalTax = Number(rawDed.professionalTax || 0);
+      const tds = Number(rawDed.tds || 0);
+      const extraDeductions: { id: string; name: string; amount: number }[] = Array.isArray(comp.extraDeductions)
+        ? comp.extraDeductions.filter((x: any) => Number(x?.amount) > 0)
+        : [];
+
       return {
-        gross: processedPayroll.computed.gross || 0,
-        net: processedPayroll.computed.net || 0,
-        totalDeductions: processedPayroll.computed.totalDeductions || 0,
-        daysWorked: processedPayroll.daysWorked || 26,
+        gross: Number(comp.gross || 0),
+        net: Number(comp.net || 0),
+        totalDeductions: Number(comp.totalDeductions || 0),
+        daysWorked: processedPayroll.daysWorked ?? 26,
         otHours: processedPayroll.otHours || 0,
-        earningsList: processedPayroll.computed.earningsList || [],
-        deductions: processedPayroll.computed.deductions || { employeePF: 0, employeeESI: 0, professionalTax: 0, tds: 0, loanEmi: 0 },
+        earningsList: Array.isArray(comp.earningsList) && comp.earningsList.length > 0 ? comp.earningsList : [
+          { id: 'basic', name: 'Basic Pay', amount: Number(comp.gross || 0) }
+        ],
+        deductions: {
+          employeePF,
+          employeeESI,
+          professionalTax,
+          tds,
+          loanEmi,
+          advance,
+          lwf,
+        },
+        extraDeductions,
         isProcessed: true,
       };
     }
@@ -269,6 +339,8 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
       professionalTax,
       tds,
       loanEmi: loanEmiDeduction,
+      advance: 0,
+      lwf: 0,
     };
 
     return {
@@ -279,6 +351,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
       otHours,
       earningsList,
       deductions: deductionsObj,
+      extraDeductions: [],
       isProcessed: false,
     };
   }, [processedPayroll, currentUser, selectedMonthObj, attendance, companyConfig, requests]);
@@ -774,6 +847,27 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
                   </View>
                 )}
 
+                {(payrollComputation.deductions as any).advance > 0 && (
+                  <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
+                    <Text style={[styles.itemLabel, { color: '#d97706', fontWeight: '600' }]}>Salary Advance Recovery</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger, fontWeight: '700' }]}>-{formatInr((payrollComputation.deductions as any).advance)}</Text>
+                  </View>
+                )}
+
+                {(payrollComputation.deductions as any).lwf > 0 && (
+                  <View style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
+                    <Text style={[styles.itemLabel, { color: theme.textSecondary }]}>Labour Welfare Fund (LWF)</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger }]}>-{formatInr((payrollComputation.deductions as any).lwf)}</Text>
+                  </View>
+                )}
+
+                {((payrollComputation as any).extraDeductions || []).map((extra: any) => (
+                  <View key={extra.id || extra.name} style={[styles.itemRow, { borderBottomWidth: 1, borderBottomColor: theme.isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9' }]}>
+                    <Text style={[styles.itemLabel, { color: theme.danger, fontWeight: '500' }]}>{extra.name || 'Other Deduction'}</Text>
+                    <Text style={[styles.itemValue, { color: theme.danger, fontWeight: '700' }]}>-{formatInr(extra.amount)}</Text>
+                  </View>
+                ))}
+
                 {payrollComputation.totalDeductions === 0 && (
                   <View style={styles.itemRow}>
                     <Text style={[styles.itemLabel, { color: theme.textMuted, fontStyle: 'italic' }]}>No active statutory deductions</Text>
@@ -817,10 +911,10 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
         {availableMonths.slice(1).map((mObj) => {
           const matchRun = (payrolls || []).find(
             (p: any) =>
-              (p.employeeId === currentUser?.id || p.employeeId === currentUser?.empCode) &&
-              (p.month === mObj.key || p.month === mObj.label)
+              isMatchEmployee(p, currentUser, employees) &&
+              matchMonth(p.month, mObj.key, mObj.label)
           );
-          const hasProcessed = !!matchRun?.computed?.net;
+          const hasProcessed = !!matchRun?.computed?.net || (matchRun?.computed && typeof matchRun.computed.net === 'number');
           const histNet = matchRun?.computed?.net || 0;
 
           return (

@@ -289,14 +289,19 @@ export function NotificationsScreen({ theme, onNavigate }: NotificationsScreenPr
 
   // 4e. Real Payroll Slip Notification
   const userPayroll = (payrolls || []).find(
-    (p) => p.employeeId === currentUser?.id || p.employeeId === currentUser?.empCode
+    (p) =>
+      p.employeeId === currentUser?.id ||
+      p.employeeId === currentUser?.empCode ||
+      (currentUser?.empCode && p.empCode === currentUser.empCode) ||
+      (p.employeeName && currentUser?.name && p.employeeName.toLowerCase() === currentUser.name.toLowerCase())
   );
   if (userPayroll) {
+    const netSalaryVal = userPayroll.computed?.net ?? userPayroll.netSalary ?? userPayroll.netPay ?? currentUser?.basic ?? 0;
     realTimeNotices.push({
       id: `pay-${userPayroll.id || userPayroll.month}`,
       type: 'payroll',
       title: `Payslip Available (${userPayroll.month || 'Current Month'})`,
-      desc: `Net pay of ₹${(userPayroll.netSalary || userPayroll.netPay || currentUser?.basic || 0).toLocaleString()} credited. Tap to review breakdown in Payroll tab.`,
+      desc: `Net pay of ₹${Number(netSalaryVal).toLocaleString()} credited. Tap to review breakdown in Payroll tab.`,
       time: userPayroll.month || 'This Month',
       unread: false,
       icon: 'payroll',

@@ -1,8 +1,6 @@
 // Single clean ngrok backend URL link
-// export const BACKEND_URL = 'https://malt-gaming-suction.ngrok-free.dev';
-
+// export const BACKEND_URL = 'https://f2d3-2401-4900-cad5-b046-1466-d12-9e8b-2a1b.ngrok-free.app';
 export const BACKEND_URL = 'https://swifthr.shop';
-
 
 const FETCH_HEADERS = {
   'Content-Type': 'application/json',
@@ -293,6 +291,30 @@ export async function updateTeamGroup(payload: {
   }
 }
 
+export async function checkEmployeeStatus(id?: string, empCode?: string) {
+  try {
+    const params = new URLSearchParams();
+    if (id) params.append('id', id);
+    if (empCode) params.append('empCode', empCode);
+    const res = await fetch(`${BACKEND_URL}/api/employee/check-status?${params.toString()}`, {
+      headers: FETCH_HEADERS,
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data) {
+      return data;
+    }
+    return {
+      exists: false,
+      active: false,
+      status: data?.status || 'unknown',
+      error: data?.error || `HTTP ${res.status}`,
+    };
+  } catch (err: any) {
+    console.warn('[API] checkEmployeeStatus error:', err);
+    return { exists: false, active: true, error: err?.message }; // fail-soft on pure network disconnection
+  }
+}
+
 export async function deleteTeamGroup(payload: {
   tenantId: string;
   groupId: string;
@@ -472,6 +494,5 @@ export async function searchTeamChatMessages(tenantId: string, groupId: string, 
   }
   return [];
 }
-
 
 
