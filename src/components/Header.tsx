@@ -210,12 +210,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   brandBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingLeft: 2,
+    overflow: 'hidden',
   },
   logoImage: {
-    width: 64,
-    height: 44,
+    width: 42,
+    height: 42,
+    transform: [{ scale: 1.3 }],
   },
 });

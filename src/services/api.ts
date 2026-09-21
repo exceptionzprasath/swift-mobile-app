@@ -189,16 +189,23 @@ export async function fetchTeamGroups(tenantId: string, employeeId: string) {
   return [];
 }
 
-export async function fetchGroupMessages(tenantId: string, groupId: string) {
+export async function fetchGroupMessages(tenantId: string, groupId: string, limit = 50, before?: string) {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/team-chat/messages?tenantId=${tenantId}&groupId=${groupId}`, {
+    let url = `${BACKEND_URL}/api/team-chat/messages?tenantId=${tenantId}&groupId=${groupId}&limit=${limit}`;
+    if (before) {
+      url += `&before=${encodeURIComponent(before)}`;
+    }
+    const res = await fetch(url, {
       headers: FETCH_HEADERS,
     });
     if (res.ok) {
       const text = await res.text();
       try {
         const data = JSON.parse(text);
-        return data.messages || [];
+        const msgs = data.messages || [];
+        (msgs as any).hasMore = !!data.hasMore;
+        (msgs as any).totalCount = data.totalCount || msgs.length;
+        return msgs;
       } catch (e) {
         console.warn('[API] fetchGroupMessages JSON parse error:', e);
       }
@@ -206,7 +213,10 @@ export async function fetchGroupMessages(tenantId: string, groupId: string) {
   } catch (err) {
     console.warn('[API] fetchGroupMessages error:', err);
   }
-  return [];
+  const empty: any[] = [];
+  (empty as any).hasMore = false;
+  (empty as any).totalCount = 0;
+  return empty;
 }
 
 export async function requestCreateGroup(payload: {
@@ -352,4 +362,116 @@ export async function askSwiftAIPrivately(payload: {
     };
   }
 }
+
+export async function markMessagesAsRead(payload: {
+  tenantId: string;
+  groupId: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  readAt?: string;
+}) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/mark-read`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (err: any) {
+    console.warn('[API] markMessagesAsRead error:', err);
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+export async function sendTeamChatMessage(payload: {
+  tenantId: string;
+  groupId: string;
+  senderId: string;
+  senderName?: string;
+  senderRole?: string;
+  text?: string;
+  mediaType?: 'image' | 'video' | 'document' | 'audio';
+  mediaUrl?: string;
+  fileName?: string;
+  fileSize?: string | number;
+  replyTo?: {
+    id: string;
+    senderName: string;
+    text: string;
+  };
+  clientMessageId?: string;
+}) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/send`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (err: any) {
+    console.warn('[API] sendTeamChatMessage error:', err);
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+export async function editTeamChatMessage(payload: {
+  tenantId: string;
+  groupId: string;
+  messageId: string;
+  newText: string;
+  userId: string;
+}) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/edit`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (err: any) {
+    console.warn('[API] editTeamChatMessage error:', err);
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+export async function deleteTeamChatMessage(payload: {
+  tenantId: string;
+  groupId: string;
+  messageId: string;
+  userId: string;
+  deleteForEveryone: boolean;
+}) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/team-chat/delete`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (err: any) {
+    console.warn('[API] deleteTeamChatMessage error:', err);
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+export async function searchTeamChatMessages(tenantId: string, groupId: string, q: string) {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/api/team-chat/search?tenantId=${tenantId}&groupId=${groupId}&q=${encodeURIComponent(q)}`,
+      {
+        headers: FETCH_HEADERS,
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return data.results || [];
+    }
+  } catch (err: any) {
+    console.warn('[API] searchTeamChatMessages error:', err);
+  }
+  return [];
+}
+
+
 

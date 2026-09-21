@@ -35,7 +35,7 @@ export function SplashView({ onFinish }: SplashViewProps) {
 
   return (
     <Animated.Image
-      source={require('../assets/swift.png')}
+      source={require('../assets/Creatons.jpeg')}
       style={[
         styles.bgImage,
         {
