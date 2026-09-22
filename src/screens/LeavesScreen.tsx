@@ -226,9 +226,26 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
 
   const isLeaveEligible = currentUser?.leaveApplyEligible !== false;
 
-  // Real-time dynamic leave balance calculations
+  // Refresh data when screen mounts to pull newly approved leaves from backend
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
+
+  // Employee matching helper
+  const isUserLeave = useCallback((l: any) => {
+    const matchId = l.employeeId === currentUser?.id;
+    const matchCode = currentUser?.empCode && (l.employeeId === currentUser.empCode || l.empCode === currentUser.empCode);
+    const matchName = currentUser?.name && l.employeeName && l.employeeName.trim().toLowerCase() === currentUser.name.trim().toLowerCase();
+    return Boolean(matchId || matchCode || matchName);
+  }, [currentUser]);
+
+  const isApproved = (status: any) => {
+    return String(status || '').trim().toLowerCase() === 'approved';
+  };
+
+  // Real-time dynamic leave balance calculations (case-insensitive for 'Approved' / 'approved')
   const userApprovedLeaves = leaves.filter(
-    (l) => (l.employeeId === currentUser?.id || l.employeeName === currentUser?.name) && l.status === 'Approved'
+    (l) => isUserLeave(l) && isApproved(l.status)
   );
 
   const usedCasual = userApprovedLeaves
@@ -264,14 +281,19 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
   // Filter permission used leaves scoped to correct period
   const permPeriodLeaves = userApprovedLeaves.filter((l) => {
     if (!l.type.toLowerCase().includes('permission')) return false;
-    const refDate = l.startDate || l.endDate;
+    const refDate = l.startDate || l.endDate || (l as any).createdAt;
     if (!refDate) return true;
-    const d = new Date(refDate);
+    const cleanStr = String(refDate).split('(')[0].split('-')[0].trim();
+    const d = new Date(cleanStr);
     const now = new Date();
+    if (isNaN(d.getTime())) return true;
     if (permPeriod === 'year') return d.getFullYear() === now.getFullYear();
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   });
-  const usedPermission = permPeriodLeaves.reduce((sum, l) => sum + (parseFloat(l.days) || 1), 0);
+  const usedPermission = permPeriodLeaves.reduce((sum, l) => {
+    const parsed = parseFloat(String(l.days || '1').replace(/[^\d.]/g, '')) || 1;
+    return sum + parsed;
+  }, 0);
 
   const casualBal = Math.max(0, totalCasual - usedCasual);
   const sickBal = Math.max(0, totalSick - usedSick);
@@ -1000,11 +1022,11 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
       </View>
 
       {/* Approval Inbox for Managers / HR */}
-      {canApproveLeaves && leaves.filter((l) => l.status === 'Pending' && l.employeeId !== currentUser?.id).length > 0 && (
+      {canApproveLeaves && leaves.filter((l) => String(l.status || '').trim().toLowerCase() === 'pending' && !isUserLeave(l)).length > 0 && (
         <View style={{ marginBottom: 20 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginBottom: 0 }]}>
-              Pending Approvals ({leaves.filter((l) => l.status === 'Pending' && l.employeeId !== currentUser?.id).length})
+              Pending Approvals ({leaves.filter((l) => String(l.status || '').trim().toLowerCase() === 'pending' && !isUserLeave(l)).length})
             </Text>
             <View style={{ backgroundColor: theme.primary + '20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
               <Text style={{ fontSize: 10, fontWeight: '700', color: theme.primary }}>Action Required</Text>
@@ -1012,7 +1034,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
           </View>
 
           {leaves
-            .filter((l) => l.status === 'Pending' && l.employeeId !== currentUser?.id)
+            .filter((l) => String(l.status || '').trim().toLowerCase() === 'pending' && !isUserLeave(l))
             .map((item) => {
               const isSequential = !item.approvalType || item.approvalType === 'sequential';
 
@@ -1117,15 +1139,17 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
 
       {/* History List */}
       <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>My Request History</Text>
-      {leaves.filter((l) => l.employeeId === currentUser?.id || l.employeeName === currentUser?.name).length === 0 ? (
+      {leaves.filter(isUserLeave).length === 0 ? (
         <View style={[styles.historyItem, { backgroundColor: theme.card, borderColor: theme.cardBorder, alignItems: 'center', paddingVertical: 20 }]}>
           <Text style={[{ color: theme.textMuted, fontSize: 12 }]}>No leave or permission requests submitted yet.</Text>
         </View>
       ) : (
         leaves
-          .filter((l) => l.employeeId === currentUser?.id || l.employeeName === currentUser?.name)
+          .filter(isUserLeave)
           .map((item) => {
-            const badgeColor = item.status === 'Approved' ? theme.success : item.status === 'Rejected' ? theme.danger : theme.warning;
+            const rawStatus = String(item.status || '').trim().toLowerCase();
+            const badgeColor = rawStatus === 'approved' ? theme.success : rawStatus === 'rejected' ? theme.danger : theme.warning;
+            const displayStatus = rawStatus === 'approved' ? 'Approved' : rawStatus === 'rejected' ? 'Rejected' : 'Pending';
             const steps = item.approvalSteps || [];
 
             return (
@@ -1133,7 +1157,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
                 <View style={styles.historyHeader}>
                   <Text style={[styles.historyType, { color: theme.textPrimary }]}>{item.type}</Text>
                   <View style={[styles.statusBadge, { backgroundColor: badgeColor + '25' }]}>
-                    <Text style={[styles.statusText, { color: badgeColor }]}>{item.status}</Text>
+                    <Text style={[styles.statusText, { color: badgeColor }]}>{displayStatus}</Text>
                   </View>
                 </View>
                 <Text style={[styles.historyDates, { color: theme.accent }]}>📅 {item.startDate} ({item.days})</Text>
@@ -1147,10 +1171,12 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                       {steps.map((st, sIdx) => {
-                        const isDone = st.status === 'Approved';
-                        const isReject = st.status === 'Rejected';
-                        const isCurrent = st.level === (item.currentLevel || 1) && item.status === 'Pending';
+                        const stepRawStatus = String(st.status || '').trim().toLowerCase();
+                        const isDone = stepRawStatus === 'approved';
+                        const isReject = stepRawStatus === 'rejected';
+                        const isCurrent = st.level === (item.currentLevel || 1) && rawStatus === 'pending';
                         const stepColor = isDone ? theme.success : isReject ? theme.danger : isCurrent ? theme.warning : theme.textMuted;
+                        const stepDisplayStatus = isDone ? 'Approved' : isReject ? 'Rejected' : 'Pending';
 
                         return (
                           <React.Fragment key={st.level}>
@@ -1175,7 +1201,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
                                 {st.roleName.split(' ')[0]}
                               </Text>
                               <Text style={{ fontSize: 8, color: theme.textMuted, textAlign: 'center' }} numberOfLines={1}>
-                                {st.status}
+                                {stepDisplayStatus}
                               </Text>
                             </View>
                             {sIdx < steps.length - 1 && (
@@ -1190,7 +1216,7 @@ export function LeavesScreen({ theme }: LeavesScreenProps) {
 
                 {item.actedBy ? (
                   <Text style={[styles.historyReason, { color: badgeColor, marginTop: 6, fontWeight: '600' }]}>
-                    {item.status} by {item.actedBy}{item.approverComment ? ` · "${item.approverComment}"` : ''}
+                    {displayStatus} by {item.actedBy}{item.approverComment ? ` · "${item.approverComment}"` : ''}
                   </Text>
                 ) : null}
               </View>
