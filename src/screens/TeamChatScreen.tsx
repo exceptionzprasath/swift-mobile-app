@@ -4352,7 +4352,7 @@ export function TeamChatScreen({ theme, onBack, initialGroupId }: TeamChatScreen
                     ) : (
                       <>
                         {/* Media rendering if present */}
-                        {msg.mediaType === 'image' && msg.mediaUrl ? (
+                        {(msg.mediaType === 'image' || (typeof msg.mediaUrl === 'string' && msg.mediaUrl.match(/\.(jpeg|jpg|png|gif|webp)/i))) && msg.mediaUrl ? (
                           <TouchableOpacity
                             activeOpacity={0.9}
                             onPress={() => setFullPreviewImage(msg.mediaUrl || null)}
@@ -4394,7 +4394,7 @@ export function TeamChatScreen({ theme, onBack, initialGroupId }: TeamChatScreen
                         ) : null}
 
                         {/* Voice Note Audio Player */}
-                        {msg.mediaType === 'audio' ? (
+                        {msg.mediaType === 'audio' || (typeof msg.text === 'string' && (msg.text.startsWith('🎤 Voice message') || msg.text.startsWith('🎤 Voice note') || msg.text.startsWith('🎤 '))) ? (
                           <View style={styles.msgAudioCard}>
                             <TouchableOpacity
                               style={styles.msgAudioPlayBtn}
@@ -4409,7 +4409,7 @@ export function TeamChatScreen({ theme, onBack, initialGroupId }: TeamChatScreen
                                   <View key={i} style={[styles.msgAudioBar, { height: h, backgroundColor: isMe ? '#075E54' : '#128C7E' }]} />
                                 ))}
                               </View>
-                              <Text style={styles.msgAudioDuration}>{msg.fileSize || '0:08'}</Text>
+                              <Text style={styles.msgAudioDuration}>{msg.fileSize || (typeof msg.text === 'string' && msg.text.match(/\(([^)]+)\)/)?.[1]) || '0:06'}</Text>
                             </View>
                           </View>
                         ) : null}
