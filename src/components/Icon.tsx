@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 export type IconName =
@@ -54,7 +54,15 @@ export type IconName =
   | 'users'
   | 'arrow-left'
   | 'more-vertical'
-  | 'check-all';
+  | 'palette'
+  | 'trash'
+  | 'paperclip'
+  | 'mic'
+  | 'smiley'
+  | 'keyboard'
+  | 'rupee'
+  | 'check-all'
+  | 'edit';
 
 interface IconProps {
   name: IconName;
@@ -118,13 +126,6 @@ export function Icon({ name, size = 20, color = '#0f766e', style }: IconProps) {
         </View>
       );
 
-    case 'check-all':
-      return (
-        <View style={{ flexDirection: 'row', alignItems: 'center', height: size }}>
-          <Text style={{ color, fontSize: size * 0.75, fontWeight: '900' }}>✓</Text>
-          <Text style={{ color, fontSize: size * 0.75, fontWeight: '900', marginLeft: -size * 0.4 }}>✓</Text>
-        </View>
-      );
 
     case 'search':
       return (
@@ -215,15 +216,146 @@ export function Icon({ name, size = 20, color = '#0f766e', style }: IconProps) {
 
     case 'camera':
       return (
-        <View style={{ width: size * 1.1, height: size * 0.8, borderRadius: 4, borderWidth: 2, borderColor: color, alignItems: 'center', justifyContent: 'center' }}>
-          <View style={{ width: size * 0.4, height: size * 0.4, borderRadius: size * 0.2, borderWidth: 1.5, borderColor: color }} />
-        </View>
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
+            stroke={color}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <Path
+            d="M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"
+            stroke={color}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
       );
 
     case 'check':
       return (
-        <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color, fontSize: size * 0.85, fontWeight: '900', marginTop: -2 }}>✓</Text>
+        <Svg width={size * 1.18} height={size} viewBox="0 0 13 11" fill="none">
+          <Path
+            d="M11.071 1.485l-6.384 6.384-2.757-2.757-1.06 1.06 3.817 3.818 7.444-7.445-1.06-1.06z"
+            fill={color}
+          />
+        </Svg>
+      );
+
+    case 'check-all':
+      return (
+        <Svg width={size * 1.4} height={size} viewBox="0 0 16 11" fill="none">
+          <Path
+            d="M10.854 1.146a.5.5 0 0 1 0 .708l-5.5 5.5a.5.5 0 0 1-.708 0l-2.5-2.5a.5.5 0 1 1 .708-.708L5 6.293l5.146-5.147a.5.5 0 0 1 .708 0z"
+            fill={color}
+          />
+          <Path
+            d="M14.854 1.146a.5.5 0 0 1 0 .708l-5.5 5.5a.5.5 0 0 1-.708 0l-.823-.823a.5.5 0 0 1 .707-.708l.47.47 5.146-5.147a.5.5 0 0 1 .708 0z"
+            fill={color}
+          />
+        </Svg>
+      );
+
+    case 'palette':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M12 2C6.49 2 2 6.49 2 12c0 4.41 3.59 8 8 8 .55 0 1-.45 1-1 0-.25-.09-.47-.26-.64-.17-.18-.27-.41-.27-.67 0-.55.45-1 1-1h1.14c3.25 0 5.89-2.64 5.89-5.89 0-5.41-4.43-9.8-9.76-9.8zM6.5 12c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9s1.5.67 1.5 1.5S7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5S18.33 12 17.5 12z"
+            fill={color}
+          />
+        </Svg>
+      );
+
+    case 'trash':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 16 16" fill={color}>
+          <Path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
+          <Path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" />
+        </Svg>
+      );
+
+    case 'paperclip':
+      return (
+        <View style={{ transform: [{ rotate: '-45deg' }] }}>
+          <Svg width={size} height={size} viewBox="0 0 16 16" fill={color}>
+            <Path d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0z" />
+          </Svg>
+        </View>
+      );
+
+    case 'mic':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+          <Path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+          <Path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+        </Svg>
+      );
+
+    case 'smiley':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z"
+            stroke={color}
+            strokeWidth="1.8"
+          />
+          <Path
+            d="M8 14C8.5 16 10 17 12 17C14 17 15.5 16 16 14"
+            stroke={color}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+          <Path
+            d="M9 9.5H9.01M15 9.5H15.01"
+            stroke={color}
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+        </Svg>
+      );
+
+    case 'keyboard':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"
+            stroke={color}
+            strokeWidth="1.8"
+          />
+          <Path
+            d="M6 8.5h1.5M11.25 8.5h1.5M16.5 8.5H18M6 12h1.5M11.25 12h1.5M16.5 12H18M8 15.5h8"
+            stroke={color}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+        </Svg>
+      );
+
+    case 'rupee':
+      return (
+        <View
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            borderWidth: 1.8,
+            borderColor: color,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <Text
+            style={{
+              color,
+              fontSize: size * 0.58,
+              fontWeight: '700',
+              marginTop: Platform.OS === 'android' ? -1 : 0,
+            }}
+          >
+            ₹
+          </Text>
         </View>
       );
 
@@ -476,6 +608,26 @@ export function Icon({ name, size = 20, color = '#0f766e', style }: IconProps) {
             <View style={{ width: 2, height: 4, backgroundColor: '#fff', borderRadius: 1 }} />
           </View>
         </View>
+      );
+
+    case 'edit':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <Path
+            d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
       );
 
     default:

@@ -11,6 +11,7 @@ import { SplashView } from './src/components/SplashView';
 import { Header } from './src/components/Header';
 import { TabBar, TabType } from './src/components/TabBar';
 import { SideDrawer } from './src/components/SideDrawer';
+import { InAppNotificationBanner, InAppNotificationData } from './src/components/InAppNotificationBanner';
 
 import { LoginScreen } from './src/screens/LoginScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -38,6 +39,8 @@ function MainAppContent() {
   const [selectedPaletteId, setSelectedPaletteId] = useState<string>('bio_lime'); // Bio Lime default (reference dashboard theme)
   const [activeTab, setActiveTab] = useState<AppNavTab>('home');
   const [profileInitialTab, setProfileInitialTab] = useState<any>(undefined);
+  const [targetTeamChatGroupId, setTargetTeamChatGroupId] = useState<string | undefined>(undefined);
+  const [inAppBannerData, setInAppBannerData] = useState<InAppNotificationData | null>(null);
   const [isSideDrawerOpen, setIsSideDrawerOpen] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
@@ -74,17 +77,54 @@ function MainAppContent() {
     const cleanup = setupNotificationListeners(
       (remoteMessage) => {
         console.log('[FCM] Foreground push message received:', remoteMessage);
+        const data = remoteMessage.data || {};
+        const myId = currentUser?.id || currentUser?.empCode;
+
+        // Never notify sender about their own message
+        if (data.senderId && myId && String(data.senderId) === String(myId)) {
+          return;
+        }
+
+        const isTeamChat = data.type === 'team_chat_message' || !!data.groupId;
+
+        // If user is already actively viewing this chat in Team Chat tab, don't show duplicate banner
+        if (activeTab === 'team-chat' && targetTeamChatGroupId && String(targetTeamChatGroupId) === String(data.groupId)) {
+          return;
+        }
+
+        const title =
+          remoteMessage.notification?.title ||
+          data.title ||
+          (isTeamChat ? data.groupSubject || 'Team Chat' : 'SWIFT HR Notice');
+        const body =
+          remoteMessage.notification?.body ||
+          data.body ||
+          (isTeamChat ? (data.text ? `${data.senderName ? data.senderName + ': ' : ''}${data.text}` : 'New team message') : 'New announcement published.');
+
+        setInAppBannerData({
+          title: String(title),
+          body: String(body),
+          senderName: data.senderName ? String(data.senderName) : undefined,
+          groupSubject: data.groupSubject ? String(data.groupSubject) : undefined,
+          groupId: data.groupId ? String(data.groupId) : undefined,
+        });
       },
       (remoteMessage) => {
         console.log('[FCM] Push message tapped by user:', remoteMessage);
-        setActiveTab('notifications');
+        const data = remoteMessage.data || {};
+        if (data.type === 'team_chat_message' || data.groupId) {
+          setTargetTeamChatGroupId(String(data.groupId));
+          setActiveTab('team-chat');
+        } else {
+          setActiveTab('notifications');
+        }
       }
     );
 
     return () => {
       cleanup();
     };
-  }, [currentUser?.id, currentUser?.empCode]);
+  }, [currentUser?.id, currentUser?.empCode, activeTab, targetTeamChatGroupId]);
 
   const theme: ThemeColors = getThemeForPalette(selectedPaletteId, isDarkMode);
 
@@ -153,7 +193,16 @@ function MainAppContent() {
       case 'chat':
         return <ChatScreen theme={theme} />;
       case 'team-chat':
-        return <TeamChatScreen theme={theme} onBack={() => setActiveTab('home')} />;
+        return (
+          <TeamChatScreen
+            theme={theme}
+            initialGroupId={targetTeamChatGroupId}
+            onBack={() => {
+              setTargetTeamChatGroupId(undefined);
+              setActiveTab('home');
+            }}
+          />
+        );
       case 'requests':
         return <RequestsScreen theme={theme} onNavigate={(tab) => setActiveTab(tab)} />;
       case 'grievance':
@@ -248,6 +297,21 @@ function MainAppContent() {
         selectedPaletteId={selectedPaletteId}
         onSelectPalette={handleSelectPalette}
         onLogout={logout}
+      />
+
+      {/* WhatsApp-Style In-App Heads-Up Dropdown Banner */}
+      <InAppNotificationBanner
+        notification={inAppBannerData}
+        onPress={(item) => {
+          setInAppBannerData(null);
+          if (item.groupId) {
+            setTargetTeamChatGroupId(item.groupId);
+            setActiveTab('team-chat');
+          } else {
+            setActiveTab('notifications');
+          }
+        }}
+        onDismiss={() => setInAppBannerData(null)}
       />
 
     </SafeAreaView>

@@ -49,7 +49,7 @@ export function LoginScreen({ theme, onLogin }: LoginScreenProps) {
 
   return (
     <ImageBackground
-      source={require('../assets/swift.png')}
+      source={require('../assets/Creatons.jpeg')}
       style={styles.bgImage}
       resizeMode="cover"
     >
@@ -72,7 +72,7 @@ export function LoginScreen({ theme, onLogin }: LoginScreenProps) {
               {/* Brand Logo Header */}
               <View style={styles.brandHeader}>
                 <Image
-                  source={require('../assets/logo-swift.png')}
+                  source={require('../assets/Creatonslogo.jpeg')}
                   style={styles.logoImage}
                   resizeMode="contain"
                 />
