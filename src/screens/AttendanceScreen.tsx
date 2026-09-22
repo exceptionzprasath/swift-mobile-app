@@ -149,7 +149,8 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
   useEffect(() => {
     loadUserLocation();
-  }, []);
+    refreshData();
+  }, [refreshData]);
 
   const branches = companyConfig?.branches || [];
   const userAssignedBranchIds: string[] = Array.isArray(currentUser?.branchIds) && currentUser.branchIds.length > 0
@@ -509,7 +510,25 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
       const existingRec = userLogs.find((a) => a.date === dateStr);
       const rosterEntry = (roster || []).find((r: any) => (r.employeeId === currentUser?.id || r.empCode === currentUser?.empCode) && r.date === dateStr);
       const holidayEntry = (holidays || []).find((h: any) => h.date === dateStr);
-      const leaveEntry = (leaves || []).find((l: any) => (l.employeeId === currentUser?.id || l.employeeName === currentUser?.name) && l.status === 'Approved' && dateStr >= l.startDate && dateStr <= l.endDate);
+      const leaveEntry = (leaves || []).find((l: any) => {
+        const matchId = l.employeeId === currentUser?.id;
+        const matchCode = currentUser?.empCode && (l.employeeId === currentUser.empCode || l.empCode === currentUser.empCode);
+        const matchName = currentUser?.name && l.employeeName && l.employeeName.trim().toLowerCase() === currentUser.name.trim().toLowerCase();
+        const isApproved = String(l.status || '').trim().toLowerCase() === 'approved';
+        if (!(matchId || matchCode || matchName) || !isApproved) return false;
+        const sDate = l.startDate ? String(l.startDate).split('(')[0].split('to')[0].trim() : '';
+        const eDate = l.endDate ? String(l.endDate).split('(')[0].split('to')[0].trim() : sDate;
+        if (sDate.includes('-') && eDate.includes('-') && sDate.length === 10) {
+          return dateStr >= sDate && dateStr <= eDate;
+        }
+        const sD = new Date(sDate);
+        const eD = new Date(eDate);
+        if (!isNaN(sD.getTime()) && !isNaN(eD.getTime())) {
+          const curD = new Date(dateStr);
+          return curD >= sD && curD <= eD;
+        }
+        return false;
+      });
       const isWeekoff = rosterEntry?.shiftId === 'off' || (!rosterEntry && (dayOfWeek === 0));
       const shiftName = rosterEntry?.shiftName || assignedShift.name || 'General Shift 4.30';
       const shiftStart = rosterEntry?.shiftStart || assignedShift.start || '09:00';
@@ -722,11 +741,13 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
   }, [monthDaysList]);
 
   const userApprovedLeaves = useMemo(() => {
-    return (leaves || []).filter(
-      (l: any) =>
-        (l.employeeId === currentUser?.id || l.employeeName === currentUser?.name) &&
-        l.status === 'Approved'
-    );
+    return (leaves || []).filter((l: any) => {
+      const matchId = l.employeeId === currentUser?.id;
+      const matchCode = currentUser?.empCode && (l.employeeId === currentUser.empCode || l.empCode === currentUser.empCode);
+      const matchName = currentUser?.name && l.employeeName && l.employeeName.trim().toLowerCase() === currentUser.name.trim().toLowerCase();
+      const isApproved = String(l.status || '').trim().toLowerCase() === 'approved';
+      return (matchId || matchCode || matchName) && isApproved;
+    });
   }, [leaves, currentUser]);
 
   // Dynamic Leave Types from company settings (backend config)
@@ -826,9 +847,11 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
     const permLeaves = userApprovedLeaves.filter((l: any) => {
       const type = (l.type || '').toLowerCase();
       if (!type.includes('permission')) return false;
-      const refDate = l.startDate || l.endDate;
+      const refDate = l.startDate || l.endDate || l.createdAt;
       if (!refDate) return true;
-      const d = new Date(refDate);
+      const cleanStr = String(refDate).split('(')[0].split('-')[0].trim();
+      const d = new Date(cleanStr);
+      if (isNaN(d.getTime())) return true;
       return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
     });
 
@@ -837,7 +860,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
       const maxRequests = pt.maxRequestsPerMonth ?? 2;
 
       const usedHours = permLeaves.reduce((sum: number, l: any) => {
-        const val = parseFloat(l.days) || 1;
+        const val = parseFloat(String(l.days || '1').replace(/[^\d.]/g, '')) || 1;
         return sum + val;
       }, 0);
       const usedRequests = permLeaves.length;
