@@ -81,7 +81,7 @@ export function ForceUpdateModal({
           </Text>
 
           <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-            A newer version of SWIFT HRMS is available. You must update the app to version {latestVersion} to continue.
+            A newer version of Creatons HR Suite is available. You must update the app to version {latestVersion} to continue.
           </Text>
 
           {/* Version Comparison Box */}
