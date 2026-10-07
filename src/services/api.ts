@@ -1,6 +1,6 @@
 // Production backend URL link
 export const BACKEND_URL = 'https://swifthr.shop';
-// export const BACKEND_URL = 'https://malt-gaming-suction.ngrok-free.dev';
+
 
 const FETCH_HEADERS = {
   'Content-Type': 'application/json',
@@ -117,13 +117,21 @@ export async function verifyFace(tenantId: string, employeeId: string, photoData
       headers: FETCH_HEADERS,
       body: JSON.stringify({ tenantId, employeeId, photoDataUrl }),
     });
-    if (res.ok) {
-      return await res.json();
+    const data = await res.json().catch(() => null);
+    if (res.ok && data) {
+      return data;
     }
+    return {
+      success: false,
+      reason: data?.reason || data?.error || `Face verification failed (${res.status})`,
+    };
   } catch (err: any) {
     console.warn(`[API] Error verifying face:`, err?.message || err);
+    return {
+      success: false,
+      reason: err?.message || 'Network error during face verification',
+    };
   }
-  return { success: true, employeeId: employeeId || 'demo-emp-1', similarity: 99.4 };
 }
 
 export async function verifyOfficeWifiBSSID(payload: {
