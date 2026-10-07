@@ -20,6 +20,7 @@ import { Icon } from '../components/Icon';
 import { ThemePaletteModal } from '../components/ThemePaletteModal';
 import { useAppContext, EmployeeDocument, FamilyMember, EducationEntry, ExperienceEntry, Employee } from '../context/AppContext';
 import { calculateProfileCompletion } from '../utils/profileCompletion';
+import { getAppVersion } from '../utils/version';
 
 const { width } = Dimensions.get('window');
 
@@ -1609,6 +1610,13 @@ export function ProfileScreen({
         </TouchableOpacity>
       </View>
 
+      {/* App Version Info */}
+      <View style={styles.versionContainer}>
+        <Text style={[styles.versionText, { color: theme.textMuted }]}>
+          Version {getAppVersion()}
+        </Text>
+      </View>
+
       {/* Logout Button */}
       <TouchableOpacity
         style={[styles.logoutBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]}
@@ -2774,6 +2782,17 @@ const styles = StyleSheet.create({
   settingVal: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  versionContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  versionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   logoutBtn: {
     flexDirection: 'row',

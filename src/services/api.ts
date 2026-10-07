@@ -541,4 +541,24 @@ export async function searchTeamChatMessages(tenantId: string, groupId: string, 
   return [];
 }
 
+export async function checkAppVersion(): Promise<{
+  success: boolean;
+  version?: string;
+  updateUrl?: string;
+  forceUpdate?: boolean;
+}> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/app-version`, {
+      headers: FETCH_HEADERS,
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err: any) {
+    console.warn('[API] checkAppVersion error:', err?.message || err);
+  }
+  return { success: false };
+}
+
+
 

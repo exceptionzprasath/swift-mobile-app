@@ -27,6 +27,9 @@ import { TeamChatScreen } from './src/screens/TeamChatScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { GrievanceScreen } from './src/screens/GrievanceScreen';
 import { RequestsScreen } from './src/screens/RequestsScreen';
+import { ForceUpdateModal } from './src/components/ForceUpdateModal';
+import { checkAppVersion } from './src/services/api';
+import { getAppVersion } from './src/utils/version';
 
 const THEME_PALETTE_KEY = '@swift_theme_palette';
 const DARK_MODE_KEY = '@swift_dark_mode';
@@ -43,6 +46,39 @@ function MainAppContent() {
   const [inAppBannerData, setInAppBannerData] = useState<InAppNotificationData | null>(null);
   const [isSideDrawerOpen, setIsSideDrawerOpen] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  // App Version & Force Update State
+  const [updateRequired, setUpdateRequired] = useState(false);
+  const [latestVersion, setLatestVersion] = useState<string>('');
+  const [updateUrl, setUpdateUrl] = useState<string>('');
+  const [isCheckingVersion, setIsCheckingVersion] = useState(false);
+
+  const performVersionCheck = async () => {
+    try {
+      setIsCheckingVersion(true);
+      const res = await checkAppVersion();
+      if (res && res.success && res.version) {
+        const currentVer = getAppVersion().trim();
+        const serverVer = res.version.trim();
+        setLatestVersion(serverVer);
+        setUpdateUrl(res.updateUrl || '');
+        if (currentVer !== serverVer) {
+          console.log(`[VersionCheck] Mandatory update required: installed=${currentVer}, required=${serverVer}`);
+          setUpdateRequired(true);
+        } else {
+          setUpdateRequired(false);
+        }
+      }
+    } catch (e) {
+      console.warn('[VersionCheck] Error checking app version:', e);
+    } finally {
+      setIsCheckingVersion(false);
+    }
+  };
+
+  useEffect(() => {
+    performVersionCheck();
+  }, []);
 
   useEffect(() => {
     // Load persisted theme settings
@@ -157,6 +193,23 @@ function MainAppContent() {
 
   if (showSplash) {
     return <SplashView theme={theme} onFinish={() => setShowSplash(false)} />;
+  }
+
+  // Force-Update Blocker: Prevent entering the app if version does not match backend APP_VERSION
+  if (updateRequired) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        <ForceUpdateModal
+          visible={true}
+          currentVersion={getAppVersion()}
+          latestVersion={latestVersion}
+          updateUrl={updateUrl}
+          theme={theme}
+          isChecking={isCheckingVersion}
+          onCheckAgain={performVersionCheck}
+        />
+      </View>
+    );
   }
 
   if (!isLoggedIn) {
@@ -312,6 +365,17 @@ function MainAppContent() {
           }
         }}
         onDismiss={() => setInAppBannerData(null)}
+      />
+
+      {/* Mandatory App Force-Update Modal */}
+      <ForceUpdateModal
+        visible={updateRequired}
+        currentVersion={getAppVersion()}
+        latestVersion={latestVersion}
+        updateUrl={updateUrl}
+        theme={theme}
+        isChecking={isCheckingVersion}
+        onCheckAgain={performVersionCheck}
       />
 
     </SafeAreaView>

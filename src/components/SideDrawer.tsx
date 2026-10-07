@@ -20,6 +20,7 @@ import { Icon, IconName } from './Icon';
 import { ThemePaletteModal } from './ThemePaletteModal';
 import { useAppContext, Employee } from '../context/AppContext';
 import { calculateProfileCompletion } from '../utils/profileCompletion';
+import { getAppVersion } from '../utils/version';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(340, SCREEN_WIDTH * 0.85);
@@ -736,6 +737,13 @@ export function SideDrawer({
                     ios_backgroundColor="rgba(255, 255, 255, 0.25)"
                   />
                 </View>
+              </View>
+
+              {/* App Version Info */}
+              <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 16, marginBottom: 8 }}>
+                <Text style={{ color: 'rgba(255, 255, 255, 0.45)', fontSize: 12, fontWeight: '700', letterSpacing: 0.4 }}>
+                  Version {getAppVersion()}
+                </Text>
               </View>
 
               {/* Solid Red Flat Sign Out Action Button */}
