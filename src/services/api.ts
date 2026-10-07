@@ -1,6 +1,6 @@
-// Single clean ngrok backend URL link
-// export const BACKEND_URL = 'https://9bce-2401-4900-7b88-5b5e-1453-4b28-8970-cb2e.ngrok-free.app';
+// Production backend URL link
 export const BACKEND_URL = 'https://swifthr.shop';
+
 
 const FETCH_HEADERS = {
   'Content-Type': 'application/json',
@@ -130,6 +130,52 @@ export async function verifyFace(tenantId: string, employeeId: string, photoData
     return {
       success: false,
       reason: err?.message || 'Network error during face verification',
+    };
+  }
+}
+
+export async function verifyOfficeWifiBSSID(payload: {
+  tenantId: string;
+  employeeId: string;
+  branchId?: string;
+  clientLocationId?: string;
+  connectedBSSID: string;
+}): Promise<{ success: boolean; verified?: boolean; branchId?: string; branchName?: string; error?: string }> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/attendance/verify-wifi`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+
+    const rawText = await res.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      if (rawText.includes('ERR_NGROK') || rawText.includes('is offline') || rawText.includes('ngrok')) {
+        return {
+          success: false,
+          verified: false,
+          error: 'Backend tunnel (ngrok) is currently offline. Please run ngrok to connect to your local server.',
+        };
+      }
+      return {
+        success: false,
+        verified: false,
+        error: res.status === 404
+          ? 'Backend endpoint not found (404). Please restart your backend server with npm start.'
+          : `Server returned non-JSON error (HTTP ${res.status}).`,
+      };
+    }
+
+    return data;
+  } catch (err: any) {
+    console.warn('[API] Error verifying office Wi-Fi:', err?.message || err);
+    return {
+      success: false,
+      verified: false,
+      error: err?.message || 'Network error verifying office Wi-Fi.',
     };
   }
 }
@@ -502,5 +548,25 @@ export async function searchTeamChatMessages(tenantId: string, groupId: string, 
   }
   return [];
 }
+
+export async function checkAppVersion(): Promise<{
+  success: boolean;
+  version?: string;
+  updateUrl?: string;
+  forceUpdate?: boolean;
+}> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/app-version`, {
+      headers: FETCH_HEADERS,
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err: any) {
+    console.warn('[API] checkAppVersion error:', err?.message || err);
+  }
+  return { success: false };
+}
+
 
 

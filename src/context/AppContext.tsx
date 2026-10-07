@@ -477,8 +477,8 @@ export interface AppContextType {
   login: (empCodeOrEmail: string, pass: string) => Promise<boolean>;
   logout: () => void;
   refreshData: () => Promise<void>;
-  clockIn: (photoDataUrl?: string) => Promise<ClockResult>;
-  clockOut: (photoDataUrl?: string) => Promise<ClockResult>;
+  clockIn: (photoDataUrl?: string, verificationMethod?: string) => Promise<ClockResult>;
+  clockOut: (photoDataUrl?: string, verificationMethod?: string) => Promise<ClockResult>;
   applyLeave: (request: Omit<LeaveRequest, 'id' | 'tenantId' | 'employeeId' | 'employeeName' | 'createdAt'>) => Promise<boolean>;
   actOnLeave: (leaveId: string, action: 'approve' | 'approve_forward' | 'approve_close' | 'reject' | 'escalate', comment?: string) => Promise<boolean>;
   actOnAttendanceRequest: (requestId: string, action: 'approve' | 'approve_forward' | 'approve_close' | 'reject' | 'escalate', comment?: string) => Promise<boolean>;
@@ -924,7 +924,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Real AWS Rekognition Facial Check-In
-  const clockIn = async (photoDataUrl?: string): Promise<ClockResult> => {
+  const clockIn = async (photoDataUrl?: string, verificationMethod?: string): Promise<ClockResult> => {
     const empId = currentUser?.id || currentUser?.empCode || 'demo-emp-1';
     const effectiveTenantId = tenantId || currentUser?.tenantId || 'demo-tenant-1';
     let faceResult: any = { success: true, similarity: 99.4 };
@@ -1022,7 +1022,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       punctuality: punctualityTag,
       lateBy: lateByMinutes,
       faceVerified: true,
-      geofenceVerified: true,
+      geofenceVerified: verificationMethod !== 'VERIFIED_VIA_WIFI',
+      wifiVerified: verificationMethod === 'VERIFIED_VIA_WIFI',
+      verificationMethod: verificationMethod || 'GEOFENCE',
       photoDataUrl: photoToSave || undefined,
       checkInPhoto: photoToSave || undefined,
       similarity: faceResult?.similarity || 99.4,
@@ -1047,7 +1049,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Real AWS Rekognition Facial Check-Out
-  const clockOut = async (photoDataUrl?: string): Promise<ClockResult> => {
+  const clockOut = async (photoDataUrl?: string, verificationMethod?: string): Promise<ClockResult> => {
     const empId = currentUser?.id || currentUser?.empCode || 'demo-emp-1';
     const effectiveTenantId = tenantId || currentUser?.tenantId || 'demo-tenant-1';
     let faceResult: any = { success: true, similarity: 99.4 };
@@ -1124,6 +1126,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         earlyOutBy: earlyOutByMins,
         checkOutPhoto: photoToSave || existing.checkOutPhoto || undefined,
         photoDataUrl: existing.photoDataUrl || photoToSave || undefined,
+        wifiVerified: verificationMethod === 'VERIFIED_VIA_WIFI' || existing.wifiVerified || false,
+        verificationMethod: verificationMethod || existing.verificationMethod || 'GEOFENCE',
       };
 
       const newAttList = [...attendance];
@@ -1146,7 +1150,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         hoursWorked: 8.0,
         status: 'present',
         faceVerified: true,
-        geofenceVerified: true,
+        geofenceVerified: verificationMethod !== 'VERIFIED_VIA_WIFI',
+        wifiVerified: verificationMethod === 'VERIFIED_VIA_WIFI',
+        verificationMethod: verificationMethod || 'GEOFENCE',
         checkOutPhoto: photoToSave || undefined,
         photoDataUrl: photoToSave || undefined,
         similarity: faceResult?.similarity || 99.4,

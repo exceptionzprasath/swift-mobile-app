@@ -1,6 +1,6 @@
 {
   "name": "swifthr",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -28,6 +28,7 @@
     "react-native": "0.86.2",
     "react-native-bootstrap-icons": "^1.5.0",
     "react-native-image-picker": "^8.2.1",
+    "react-native-network-info": "^5.2.2",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-svg": "^15.15.5",
     "react-native-vector-icons": "^10.3.0"
