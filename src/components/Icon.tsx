@@ -62,7 +62,8 @@ export type IconName =
   | 'keyboard'
   | 'rupee'
   | 'check-all'
-  | 'edit';
+  | 'edit'
+  | 'wifi';
 
 interface IconProps {
   name: IconName;
@@ -622,6 +623,19 @@ export function Icon({ name, size = 20, color = '#0f766e', style }: IconProps) {
           />
           <Path
             d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      );
+
+    case 'wifi':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M5 12.55a11 11 0 0114.08 0M1.42 9a16 16 0 0121.16 0M8.53 16.11a6 6 0 016.95 0M12 20h.01"
             stroke={color}
             strokeWidth="2"
             strokeLinecap="round"

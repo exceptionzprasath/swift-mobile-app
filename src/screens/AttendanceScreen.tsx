@@ -14,13 +14,16 @@ import {
   Platform,
   RefreshControl,
   TextInput,
+  NativeModules,
 } from 'react-native';
 import { launchCamera } from 'react-native-image-picker';
 import Geolocation from '@react-native-community/geolocation';
+import { NetworkInfo } from 'react-native-network-info';
 import { ThemeColors, SHADOWS } from '../theme/colors';
 import { Icon } from '../components/Icon';
 import { FaceRegistrationModal } from '../components/FaceRegistrationModal';
 import { useAppContext } from '../context/AppContext';
+import { verifyOfficeWifiBSSID } from '../services/api';
 
 const { width } = Dimensions.get('window');
 const GOOGLE_MAPS_API_KEY = "AIzaSyAs3nkKoCsndZiXeV6oh0PvRLL7FpMiZ4k";
@@ -123,6 +126,12 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
   const [resultMsg, setResultMsg] = useState('');
   const [matchScore, setMatchScore] = useState<number | null>(null);
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
+
+  // Wi-Fi BSSID Fallback & Error Categorization State
+  const [lastErrorType, setLastErrorType] = useState<'NONE' | 'LOCATION_ERROR' | 'FACE_MISMATCH_ERROR' | 'NETWORK_ERROR'>('NONE');
+  const [locationFailureCount, setLocationFailureCount] = useState<number>(0);
+  const [isLocationVerifiedViaWifi, setIsLocationVerifiedViaWifi] = useState<boolean>(false);
+  const [isVerifyingWifi, setIsVerifyingWifi] = useState<boolean>(false);
 
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -320,6 +329,140 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
   const isFaceEnrolled = Boolean(currentUser?.faceRegistered || (currentUser?.photoDataUrl && currentUser.photoDataUrl.startsWith('http')));
 
+  const requestWifiAndLocationPermissions = async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: 'Location Permission for Wi-Fi Verification',
+            message: 'Android requires high accuracy location access to identify your office Wi-Fi router BSSID.',
+            buttonPositive: 'Allow',
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (e) {
+        console.warn('Permission request error:', e);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const handleVerifyViaOfficeWifi = async () => {
+    try {
+      setIsVerifyingWifi(true);
+      setResultMsg('Scanning connected office Wi-Fi network...');
+
+      // 1. Verify permissions
+      const hasPerms = await requestWifiAndLocationPermissions();
+      if (!hasPerms) {
+        Alert.alert(
+          'Permissions Required',
+          'Location and Wi-Fi permissions are required by Android to identify the router BSSID.'
+        );
+        setIsVerifyingWifi(false);
+        return;
+      }
+
+      // 2. Safe check: verify that the native module is compiled into the APK
+      if (!NativeModules?.RNNetworkInfo) {
+        Alert.alert(
+          'Rebuild Required for Wi-Fi Detection',
+          'The newly installed native Wi-Fi library is not yet compiled into the running APK. Please stop the app and run "npm run android" in the terminal so Gradle bundles the new native code.',
+          [{ text: 'OK' }]
+        );
+        setIsVerifyingWifi(false);
+        return;
+      }
+
+      // 3. Fetch connected Wi-Fi router BSSID (Hardware MAC Address)
+      const bssid = await NetworkInfo.getBSSID();
+
+      if (!bssid || bssid === '02:00:00:00:00:00' || bssid.toLowerCase() === 'error') {
+        Alert.alert(
+          'Wi-Fi Not Detected',
+          'Could not detect connected Wi-Fi router BSSID. Please ensure you are connected to the office Wi-Fi and device Location/GPS is turned ON.'
+        );
+        setIsVerifyingWifi(false);
+        return;
+      }
+
+      const empId = currentUser?.id || currentUser?.empCode || 'SW001';
+      const effectiveTenantId = currentUser?.tenantId || 'demo-tenant-1';
+      const currentBranchId = currentUser?.branchId || effectiveBranches[0]?.id;
+
+      // 3. Handshake with backend
+      const res = await verifyOfficeWifiBSSID({
+        tenantId: effectiveTenantId,
+        employeeId: empId,
+        branchId: currentBranchId,
+        clientLocationId: currentBranchId,
+        connectedBSSID: bssid,
+      });
+
+      if (res.success && res.verified) {
+        // SUCCESS: Reset location failure counter & set bypass flag
+        setLocationFailureCount(0);
+        setIsLocationVerifiedViaWifi(true);
+        setLastErrorType('NONE');
+        setScanningStatus('ready');
+        setResultMsg(`✅ Office Wi-Fi authenticated (${res.branchName || 'Authorized Router'}). Proceeding to face scan.`);
+
+        Alert.alert(
+          'Wi-Fi Verified',
+          `Successfully authenticated with ${res.branchName || 'Office'} Wi-Fi! Tap Proceed to Face Scan to complete attendance.`,
+          [
+            {
+              text: 'Proceed to Face Scan',
+              onPress: () => {
+                handleStartBiometricVerification(true);
+              },
+            },
+          ]
+        );
+      } else {
+        setScanningStatus('failed');
+        Alert.alert(
+          'Wi-Fi Verification Failed',
+          res.error || 'Connected Wi-Fi does not match office router. Please connect to official office Wi-Fi.'
+        );
+        setResultMsg(res.error || 'Connected Wi-Fi does not match office router.');
+      }
+    } catch (err: any) {
+      setScanningStatus('failed');
+      Alert.alert('Wi-Fi Check Error', err?.message || 'Failed to read Wi-Fi network.');
+      setResultMsg(err?.message || 'Failed to read Wi-Fi network.');
+    } finally {
+      setIsVerifyingWifi(false);
+    }
+  };
+
+  const handleDirectWifiPunch = async () => {
+    if (!punctualityStatus.isAllowed) return;
+
+    if (!isFaceEnrolled) {
+      Alert.alert(
+        'Face Biometrics Required',
+        'You have not enrolled your face biometric profile yet. Please register your face first to enable AI Face Attendance.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Register Face Now', onPress: () => setFaceModalVisible(true) },
+        ]
+      );
+      return;
+    }
+
+    setScanningStatus('verifying');
+    setResultMsg('Validating connected office Wi-Fi network...');
+    setMatchScore(null);
+    setCapturedImageUri(null);
+    setLastErrorType('NONE');
+    setScannerModalVisible(true);
+
+    await handleVerifyViaOfficeWifi();
+  };
+
   const handleOpenScanner = () => {
     if (!isFaceEnrolled) {
       Alert.alert(
@@ -336,11 +479,61 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
     setResultMsg('');
     setMatchScore(null);
     setCapturedImageUri(null);
+    setLastErrorType('NONE');
     setScannerModalVisible(true);
   };
 
-  const handleStartBiometricVerification = async () => {
+  const handleStartBiometricVerification = async (bypassGeofence = false) => {
     try {
+      // 1. Location / Geofence Check (Skipped if verified via Wi-Fi fallback)
+      const shouldVerifyLocation = !bypassGeofence && !isLocationVerifiedViaWifi && currentUser?.geofencingEnabled !== false;
+
+      if (shouldVerifyLocation) {
+        setScanningStatus('verifying');
+        setResultMsg('Validating branch geofence coordinates...');
+        try {
+          const coords = await getCurrentLocation();
+          setUserCoords({ lat: coords.latitude, lng: coords.longitude });
+          const userLat = coords.latitude;
+          const userLng = coords.longitude;
+          let isInRange = false;
+          let closestDist = 999999;
+          for (const b of effectiveBranches) {
+            const d = getDistanceMeters(userLat, userLng, b.lat ?? branchLat, b.lng ?? branchLng);
+            if (d < closestDist) closestDist = d;
+            if (d <= (b.radiusMeters ?? branchRadius)) {
+              isInRange = true;
+              break;
+            }
+          }
+
+          if (!isInRange) {
+            // LOCATION_ERROR: Increment location failure count
+            const nextCount = locationFailureCount + 1;
+            setLocationFailureCount(nextCount);
+            setLastErrorType('LOCATION_ERROR');
+            setScanningStatus('failed');
+            setResultMsg(
+              `Geofence verification failed (${nextCount}x). You are ${Math.round(closestDist)}m away from assigned branch boundaries (Allowed limit: ${branchRadius}m).`
+            );
+            return;
+          } else {
+            // Location passed: reset counter
+            setLocationFailureCount(0);
+            setLastErrorType('NONE');
+          }
+        } catch (locErr: any) {
+          console.warn('[Location] GPS verification error:', locErr);
+          const nextCount = locationFailureCount + 1;
+          setLocationFailureCount(nextCount);
+          setLastErrorType('LOCATION_ERROR');
+          setScanningStatus('failed');
+          setResultMsg('Could not verify GPS coordinates. Please ensure High Accuracy Location / GPS is enabled on your device.');
+          return;
+        }
+      }
+
+      // 2. Launch Camera for Face Capture
       setScanningStatus('capturing');
       setResultMsg('Launching front camera...');
 
@@ -367,58 +560,33 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
       setScanningStatus('verifying');
       setResultMsg('Transmitting biometric packet to AWS Rekognition engine...');
 
-      const isGeofenceExempt = currentUser?.geofencingEnabled === false;
-      if (!isGeofenceExempt) {
-        try {
-          const coords = await getCurrentLocation();
-          setUserCoords({ lat: coords.latitude, lng: coords.longitude });
-          const userLat = coords.latitude;
-          const userLng = coords.longitude;
-          let isInRange = false;
-          let closestDist = 999999;
-          for (const b of effectiveBranches) {
-            const d = getDistanceMeters(userLat, userLng, b.lat ?? branchLat, b.lng ?? branchLng);
-            if (d < closestDist) closestDist = d;
-            if (d <= (b.radiusMeters ?? branchRadius)) {
-              isInRange = true;
-              break;
-            }
-          }
-
-          if (!isInRange) {
-            setScanningStatus('failed');
-            setResultMsg(
-              `Geofence verification failed. You are ${Math.round(closestDist)}m away from assigned branch boundaries (Allowed limit: ${branchRadius}m).`
-            );
-            return;
-          }
-        } catch (locErr: any) {
-          console.warn('[Location] GPS verification error:', locErr);
-          setScanningStatus('failed');
-          setResultMsg('Could not verify GPS coordinates. Please ensure High Accuracy Location / GPS is enabled on your device.');
-          return;
-        }
-      }
-
+      // 3. Process Clock-in / Clock-out
+      const verificationTag = isLocationVerifiedViaWifi ? 'VERIFIED_VIA_WIFI' : 'GEOFENCE';
       let clockResult: any;
+
       if (isClockedIn) {
-        clockResult = await clockOut(photoDataUrl);
+        clockResult = await clockOut(photoDataUrl, verificationTag);
       } else {
-        clockResult = await clockIn(photoDataUrl);
+        clockResult = await clockIn(photoDataUrl, verificationTag);
       }
 
       if (clockResult && clockResult.success) {
+        setLastErrorType('NONE');
+        setLocationFailureCount(0);
+        setIsLocationVerifiedViaWifi(false); // Reset session flag
         setScanningStatus('success');
         setMatchScore(clockResult.similarity || 99.4);
         setResultMsg(
           isClockedIn
-            ? `Clock-out logged successfully. Shift completed. Facial Confidence: ${(clockResult.similarity || 99.4).toFixed(1)}%`
-            : `Clock-in authenticated successfully. Have a productive day! Facial Confidence: ${(clockResult.similarity || 99.4).toFixed(1)}%`
+            ? `Clock-out logged successfully (${verificationTag}). Shift completed. Facial Confidence: ${(clockResult.similarity || 99.4).toFixed(1)}%`
+            : `Clock-in authenticated successfully (${verificationTag}). Have a productive day! Facial Confidence: ${(clockResult.similarity || 99.4).toFixed(1)}%`
         );
         setTimeout(() => {
           setScannerModalVisible(false);
         }, 2200);
       } else {
+        // FACE_MISMATCH_ERROR: DO NOT increment locationFailureCount
+        setLastErrorType('FACE_MISMATCH_ERROR');
         setScanningStatus('failed');
         setResultMsg(
           clockResult?.reason ||
@@ -1120,6 +1288,35 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                     : 'Verify Face to Punch In'}
                 </Text>
               </TouchableOpacity>
+
+              {/* Direct Office Wi-Fi punch button below Verify Face button */}
+              <TouchableOpacity
+                style={[
+                  styles.actionBtn,
+                  {
+                    backgroundColor: theme.isDark ? '#1e293b' : '#f8fafc',
+                    borderColor: theme.primary,
+                    borderWidth: 1.5,
+                    marginTop: 10,
+                    opacity: !punctualityStatus.isAllowed ? 0.6 : 1,
+                  },
+                ]}
+                onPress={handleDirectWifiPunch}
+                disabled={!punctualityStatus.isAllowed || isVerifyingWifi}
+              >
+                {isVerifyingWifi ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : (
+                  <>
+                    <Icon name="wifi" size={18} color={theme.primary} />
+                    <Text style={[styles.actionBtnText, { color: theme.primary }]}>
+                      {isClockedIn
+                        ? 'Verify via Office Wi-Fi to Punch Out'
+                        : 'Verify via Office Wi-Fi to Punch In'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         ) : (
@@ -1750,19 +1947,75 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
             {scanningStatus === 'failed' && (
               <View style={[styles.resBox, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]}>
-                <Text style={[styles.resTitle, { color: theme.danger }]}>❌ Facial Verification Failed</Text>
+                <Text style={[styles.resTitle, { color: theme.danger }]}>
+                  {lastErrorType === 'LOCATION_ERROR'
+                    ? '📍 Location / Geofence Failed'
+                    : lastErrorType === 'FACE_MISMATCH_ERROR'
+                    ? '❌ Face Not Matched, Try Again'
+                    : '❌ Verification Failed'}
+                </Text>
                 <Text style={[styles.resText, { color: theme.danger }]}>{resultMsg}</Text>
+
+                {/* Fallback button rendered strictly when location fails 2+ consecutive times */}
+                {lastErrorType === 'LOCATION_ERROR' && locationFailureCount >= 2 && (
+                  <TouchableOpacity
+                    style={[styles.wifiFallbackBtn, { backgroundColor: theme.primary }]}
+                    onPress={handleVerifyViaOfficeWifi}
+                    disabled={isVerifyingWifi}
+                  >
+                    {isVerifyingWifi ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <>
+                        <Icon name="wifi" size={16} color="#ffffff" />
+                        <Text style={styles.wifiFallbackBtnText}>Verify via Office Wi-Fi</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
             {scanningStatus === 'ready' && (
-              <TouchableOpacity style={[styles.modalScanBtn, { backgroundColor: theme.primary }]} onPress={handleStartBiometricVerification}>
+              <TouchableOpacity style={[styles.modalScanBtn, { backgroundColor: theme.primary }]} onPress={() => handleStartBiometricVerification(isLocationVerifiedViaWifi)}>
                 <Text style={styles.modalScanBtnText}>Start Facial Recognition Check</Text>
               </TouchableOpacity>
             )}
 
+            {/* Retry options depending on error classification */}
+            {scanningStatus === 'failed' && lastErrorType === 'FACE_MISMATCH_ERROR' && (
+              <TouchableOpacity
+                style={[styles.modalScanBtn, { backgroundColor: theme.primary, marginTop: 8 }]}
+                onPress={() => {
+                  setScanningStatus('ready');
+                  setCapturedImageUri(null);
+                  setResultMsg('');
+                  handleStartBiometricVerification(isLocationVerifiedViaWifi);
+                }}
+              >
+                <Text style={styles.modalScanBtnText}>Retry Face Scan</Text>
+              </TouchableOpacity>
+            )}
+
+            {scanningStatus === 'failed' && lastErrorType === 'LOCATION_ERROR' && locationFailureCount < 2 && (
+              <TouchableOpacity
+                style={[styles.modalScanBtn, { backgroundColor: theme.primary, marginTop: 8 }]}
+                onPress={() => {
+                  setScanningStatus('ready');
+                  setCapturedImageUri(null);
+                  setResultMsg('');
+                  handleStartBiometricVerification(false);
+                }}
+              >
+                <Text style={styles.modalScanBtnText}>Retry Location & Face Check</Text>
+              </TouchableOpacity>
+            )}
+
             {(scanningStatus === 'success' || scanningStatus === 'failed') && (
-              <TouchableOpacity style={[styles.modalScanBtn, { backgroundColor: scanningStatus === 'success' ? theme.primary : theme.danger }]} onPress={() => setScannerModalVisible(false)}>
+              <TouchableOpacity
+                style={[styles.modalScanBtn, { backgroundColor: scanningStatus === 'success' ? theme.primary : theme.danger, marginTop: 8 }]}
+                onPress={() => setScannerModalVisible(false)}
+              >
                 <Text style={styles.modalScanBtnText}>{scanningStatus === 'success' ? 'Done' : 'Close'}</Text>
               </TouchableOpacity>
             )}
@@ -2351,6 +2604,21 @@ const styles = StyleSheet.create({
   modalScanBtnText: {
     color: '#ffffff',
     fontSize: 14,
+    fontWeight: '800',
+  },
+  wifiFallbackBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  wifiFallbackBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
     fontWeight: '800',
   },
   previewImage: {

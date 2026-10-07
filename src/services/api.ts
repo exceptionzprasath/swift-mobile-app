@@ -1,6 +1,6 @@
-// Single clean ngrok backend URL link
-export const BACKEND_URL = 'https://malt-gaming-suction.ngrok-free.dev';
-// export const BACKEND_URL = 'https://swifthr.shop';
+// Production backend URL link
+export const BACKEND_URL = 'https://swifthr.shop';
+// export const BACKEND_URL = 'https://malt-gaming-suction.ngrok-free.dev';
 
 const FETCH_HEADERS = {
   'Content-Type': 'application/json',
@@ -124,6 +124,52 @@ export async function verifyFace(tenantId: string, employeeId: string, photoData
     console.warn(`[API] Error verifying face:`, err?.message || err);
   }
   return { success: true, employeeId: employeeId || 'demo-emp-1', similarity: 99.4 };
+}
+
+export async function verifyOfficeWifiBSSID(payload: {
+  tenantId: string;
+  employeeId: string;
+  branchId?: string;
+  clientLocationId?: string;
+  connectedBSSID: string;
+}): Promise<{ success: boolean; verified?: boolean; branchId?: string; branchName?: string; error?: string }> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/attendance/verify-wifi`, {
+      method: 'POST',
+      headers: FETCH_HEADERS,
+      body: JSON.stringify(payload),
+    });
+
+    const rawText = await res.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      if (rawText.includes('ERR_NGROK') || rawText.includes('is offline') || rawText.includes('ngrok')) {
+        return {
+          success: false,
+          verified: false,
+          error: 'Backend tunnel (ngrok) is currently offline. Please run ngrok to connect to your local server.',
+        };
+      }
+      return {
+        success: false,
+        verified: false,
+        error: res.status === 404
+          ? 'Backend endpoint not found (404). Please restart your backend server with npm start.'
+          : `Server returned non-JSON error (HTTP ${res.status}).`,
+      };
+    }
+
+    return data;
+  } catch (err: any) {
+    console.warn('[API] Error verifying office Wi-Fi:', err?.message || err);
+    return {
+      success: false,
+      verified: false,
+      error: err?.message || 'Network error verifying office Wi-Fi.',
+    };
+  }
 }
 
 export async function askSwiftAIChat(messages: Array<{ id?: string | number; sender?: string; role?: string; text?: string; content?: string }>, context: Record<string, any>) {
