@@ -214,7 +214,7 @@ export function generatePayslipHtml(options: GenerateSalarySlipOptions): string 
     totalMonthDays = 30;
   }
 
-  const fixedGross = computation.fixedGross || employee.fixedSalary || employee.basic || 30000;
+  const fixedGross = computation.fixedGross ?? employee.fixedSalary ?? employee.basic ?? 0;
   const dailyPaySlab = workingDays > 0 ? Math.round(fixedGross / workingDays) : Math.round(fixedGross / 30);
   const prorateFactor = workingDays > 0 ? Math.min(1, actualPresent / workingDays) : 1;
 

@@ -902,8 +902,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!inTimeStr || !outTimeStr) return 0;
     try {
       const parseTime = (s: string) => {
-        const cleaned = s.trim().toLowerCase();
-        const match = cleaned.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/i);
+        let cleaned = s.trim().replace(/[\u202F\u00A0]/g, ' ').toLowerCase();
+        if (cleaned.includes('t')) {
+          const part = cleaned.split('t')[1];
+          if (part) cleaned = part.split('.')[0].replace('z', '').trim();
+        }
+        const match = cleaned.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?$/i);
         if (!match) return -1;
         let h = parseInt(match[1], 10);
         const m = parseInt(match[2], 10);
@@ -912,15 +916,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (meridiem === 'am' && h === 12) h = 0;
         return h * 60 + m;
       };
-      const inMins = parseTime(inTimeStr);
-      const outMins = parseTime(outTimeStr);
+      let inMins = parseTime(inTimeStr);
+      let outMins = parseTime(outTimeStr);
       if (inMins < 0 || outMins < 0) return 0;
+      // If outMins is before inMins on a morning punch, adjust by 12 hours
+      if (inMins < 720 && outMins < inMins && (outMins + 720) < 1440) {
+        outMins += 720;
+      }
       let diffMins = outMins - inMins;
       if (diffMins <= 0) diffMins += 24 * 60;
       return Math.round((diffMins / 60) * 10) / 10;
     } catch {
       return 0;
     }
+  };
+
+  // Helper to format consistent 12-hour punch time (HH:MM AM/PM) independent of device locale
+  const formatPunchTime = (date: Date = new Date()): string => {
+    let h = date.getHours();
+    const m = String(date.getMinutes()).padStart(2, '0');
+    const mer = h >= 12 ? 'PM' : 'AM';
+    if (h > 12) h -= 12;
+    if (h === 0) h = 12;
+    return `${String(h).padStart(2, '0')}:${m} ${mer}`;
   };
 
   // Real AWS Rekognition Facial Check-In
@@ -959,7 +977,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeStr = formatPunchTime(d);
     const photoToSave = (faceResult?.url && faceResult.url.startsWith('http')) ? faceResult.url : photoDataUrl;
 
     // Evaluate punctuality & late status based on roster/shift config
@@ -1067,7 +1085,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const d = new Date();
     const localToday = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const utcToday = d.toISOString().split('T')[0];
-    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeStr = formatPunchTime(d);
     const photoToSave = (faceResult?.url && faceResult.url.startsWith('http')) ? faceResult.url : photoDataUrl;
 
     // Look for existing attendance record for today

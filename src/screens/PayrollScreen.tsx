@@ -258,8 +258,8 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
     const daysWorked = presentDays + halfDays * 0.5 + leaveDays;
     const prorateFactor = wd > 0 ? daysWorked / wd : 1;
 
-    const fixedGross = currentUser?.fixedSalary || currentUser?.basic || 45000;
-    const hourly = fixedGross / (wd * 8);
+    const fixedGross = currentUser?.fixedSalary ?? currentUser?.basic ?? 0;
+    const hourly = wd > 0 && fixedGross > 0 ? fixedGross / (wd * 8) : 0;
 
     const otHours = userMonthAttendance.reduce((sum, a) => sum + (Number(a.otHours) || 0), 0);
     const otPay = Math.round(hourly * otHours * 1.5);
@@ -460,8 +460,8 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
   const holidaysCount = (holidays || []).filter((h: any) => h.date && h.date.startsWith(selectedMonthObj.key)).length;
   const weekOffCount = Math.max(0, daysInMonth - workingDaysCount - holidaysCount);
 
-  const fixedGrossSalary = currentUser?.fixedSalary || currentUser?.basic || 30000;
-  const paySlabPerDay = Math.round(fixedGrossSalary / (workingDaysCount || 26));
+  const fixedGrossSalary = currentUser?.fixedSalary ?? currentUser?.basic ?? 0;
+  const paySlabPerDay = workingDaysCount > 0 && fixedGrossSalary > 0 ? Math.round(fixedGrossSalary / workingDaysCount) : 0;
 
   const pendingAdvanceTotal = useMemo(() => {
     return (requests || [])
@@ -563,7 +563,7 @@ export function PayrollScreen({ theme }: PayrollScreenProps) {
 
   // Annual CTC Calculation
   const annualCtcLpa = useMemo(() => {
-    const fixed = currentUser?.fixedSalary || currentUser?.basic || 45000;
+    const fixed = currentUser?.fixedSalary ?? currentUser?.basic ?? 0;
     return ((fixed * 12) / 100000).toFixed(1);
   }, [currentUser]);
 

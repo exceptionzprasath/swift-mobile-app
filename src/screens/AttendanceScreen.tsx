@@ -637,8 +637,15 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
   const parseTimeToMinutes = (timeStr?: string): number => {
     if (!timeStr) return -1;
-    const clean = timeStr.trim();
-    const ampmMatch = clean.match(/(\d+):(\d+)(?::\d+)?\s*(AM|PM)?/i);
+    let clean = timeStr.trim();
+    if (clean.includes('T')) {
+      const part = clean.split('T')[1];
+      if (part) clean = part.split('.')[0].replace('Z', '').trim();
+    }
+    // Normalize unicode whitespace (e.g., narrow non-breaking space U+202F, non-breaking space U+00A0)
+    clean = clean.replace(/[\u202F\u00A0]/g, ' ');
+
+    const ampmMatch = clean.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i);
     if (!ampmMatch) return -1;
     let h = parseInt(ampmMatch[1], 10);
     const m = parseInt(ampmMatch[2], 10);
@@ -650,19 +657,36 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
   const format12Hour = (timeStr?: string): string => {
     if (!timeStr) return '';
-    const clean = timeStr.trim();
-    if (clean.includes('AM') || clean.includes('PM')) {
-      return clean.replace(/(:\d{2})(:\d{2})/, '$1');
+    let clean = timeStr.trim();
+    if (clean.includes('T')) {
+      const part = clean.split('T')[1];
+      if (part) clean = part.split('.')[0].replace('Z', '').trim();
     }
-    const parts = clean.split(':');
-    if (parts.length >= 2) {
-      let h = parseInt(parts[0], 10) || 0;
-      const m = String(parseInt(parts[1], 10) || 0).padStart(2, '0');
+    // Normalize unicode whitespace
+    clean = clean.replace(/[\u202F\u00A0]/g, ' ');
+
+    // Match times with explicit AM/PM (case-insensitive, e.g. "08:28 pm", "8:28 PM", "8:28:00 AM")
+    const ampmMatch = clean.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+    if (ampmMatch) {
+      let h = parseInt(ampmMatch[1], 10);
+      const m = ampmMatch[2];
+      const mer = ampmMatch[3].toUpperCase();
+      if (h === 0) h = 12;
+      else if (h > 12) h = h % 12 || 12;
+      return `${String(h).padStart(2, '0')}:${m} ${mer}`;
+    }
+
+    // Match 24-hour time or time without AM/PM like "20:28" or "08:28"
+    const match24 = clean.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (match24) {
+      let h = parseInt(match24[1], 10);
+      const m = match24[2];
       const mer = h >= 12 ? 'PM' : 'AM';
       if (h > 12) h -= 12;
       if (h === 0) h = 12;
       return `${String(h).padStart(2, '0')}:${m} ${mer}`;
     }
+
     return clean;
   };
 
@@ -744,7 +768,23 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
 
         if (hasActualOut) {
           outMins = parseTimeToMinutes(rawOut);
-          const outFmt = format12Hour(rawOut);
+          let outFmt = format12Hour(rawOut);
+
+          // Correct 12-hour ambiguity: If check-in was in the morning (< 12:00 PM),
+          // and out time parsed to before in-time (e.g. 08:28 AM < 09:51 AM),
+          // but adding 12 hours gives a valid afternoon/evening out-time (20:28 = 08:28 PM):
+          if (inMins >= 0 && inMins < 720 && outMins >= 0 && outMins < inMins && (outMins + 720) < 1440) {
+            outMins += 720;
+            if (/AM/i.test(outFmt)) {
+              outFmt = outFmt.replace(/AM/i, 'PM');
+            } else {
+              const h = Math.floor(outMins / 60);
+              const m = outMins % 60;
+              const displayH = h > 12 ? h - 12 : h === 0 ? 12 : h;
+              outFmt = `${String(displayH).padStart(2, '0')}:${String(m).padStart(2, '0')} PM`;
+            }
+          }
+
           timingsStr = `${inFmt} - ${outFmt}`;
           if (inMins >= 0 && outMins >= 0) {
             let diff = outMins - inMins;
@@ -1718,7 +1758,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                 <View style={styles.modalDetailRow}>
                   <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Late Check-in:</Text>
                   <Text style={[styles.modalDetailValue, { color: '#ea580c', fontWeight: '800' }]}>
-                    ⚠️ Late by {selectedDayDetails?.lateComingStr} (Grace Exceeded) → Marked as Half-Day
+                    ⚠️ Late by {selectedDayDetails?.lateComingStr} (Grace Exceeded){'\n'}→ Marked as Half-Day
                   </Text>
                 </View>
               )}
@@ -1727,7 +1767,7 @@ export function AttendanceScreen({ theme }: AttendanceScreenProps) {
                 <View style={styles.modalDetailRow}>
                   <Text style={[styles.modalDetailLabel, { color: theme.textMuted }]}>Early Checkout:</Text>
                   <Text style={[styles.modalDetailValue, { color: '#ea580c', fontWeight: '800' }]}>
-                    ⚠️ Checked out {selectedDayDetails?.earlyOutStr} early → Marked as Half-Day
+                    ⚠️ Checked out {selectedDayDetails?.earlyOutStr} early{'\n'}→ Marked as Half-Day
                   </Text>
                 </View>
               )}
@@ -2371,17 +2411,24 @@ const styles = StyleSheet.create({
   modalDetailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    alignItems: 'flex-start',
+    paddingVertical: 5,
     borderBottomWidth: 0.5,
     borderBottomColor: 'rgba(156, 163, 175, 0.2)',
+    gap: 8,
   },
   modalDetailLabel: {
     fontSize: 12,
     fontWeight: '600',
+    flexShrink: 0,
+    marginTop: 1,
   },
   modalDetailValue: {
     fontSize: 12,
     fontWeight: '700',
+    flex: 1,
+    textAlign: 'right',
+    lineHeight: 18,
   },
   formLabel: {
     fontSize: 12,

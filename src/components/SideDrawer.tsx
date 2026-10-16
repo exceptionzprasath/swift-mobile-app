@@ -790,7 +790,7 @@ export function SideDrawer({
               <View style={{ flex: 1 }}>
                 <Text style={[styles.formModalTitle, { color: theme.textPrimary }]}>Apply Advance Salary Loan</Text>
                 <Text style={[styles.formModalSubtitle, { color: theme.textMuted }]}>
-                  Max Eligible: ₹{((currentUser?.basic || 30000) * 2).toLocaleString()} (2x Basic)
+                  Max Eligible: ₹{(((currentUser?.fixedSalary ?? currentUser?.basic ?? 0)) * 2).toLocaleString()} (2x Basic)
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setActiveModal(null)}>
